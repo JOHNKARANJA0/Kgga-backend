@@ -1,10 +1,12 @@
+#!/usr/bin/env python3
+
 from flask_sqlalchemy import SQLAlchemy
+from datetime import datetime, date, timedelta
 from sqlalchemy import MetaData
-from sqlalchemy.orm import validates, relationship, backref
+from sqlalchemy.orm import validates, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy_serializer import SerializerMixin
 from flask_bcrypt import Bcrypt
-from datetime import datetime
 
 bcrypt = Bcrypt()
 
@@ -18,12 +20,12 @@ db = SQLAlchemy(metadata=metadata)
 
 class BaseModel(db.Model):
     __abstract__ = True
-    created_at = db.Column(db.DateTime, default=datetime.now)
-    updated_at = db.Column(db.DateTime, default=datetime.now, onupdate=datetime.now)
+    created_at = db.Column(db.DateTime, default=db.func.now())
+    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
 
 class User(BaseModel, SerializerMixin):
     __tablename__ = 'users'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     email = db.Column(db.String(100), unique=True, nullable=False)
@@ -31,19 +33,12 @@ class User(BaseModel, SerializerMixin):
     phone_number = db.Column(db.String(20), nullable=False)
     role = db.Column(db.String(20), nullable=False)
     _password_hash = db.Column(db.String(128), nullable=False)
-    token = db.Column(db.String(32))
+    token = db.Column(db.String(32), nullable=True)
     token_verified = db.Column(db.Boolean, default=True)
     is_active = db.Column(db.Boolean, default=True)
     membership_renewal_status = db.Column(db.String(20))
-    
-    # Subscription details
-    subscription_amount = db.Column(db.Float, default=200.0)  # Subscription amount
-    subscription_date = db.Column(db.Date)  # Date of subscription payment
 
-    units = relationship('Unit', back_populates='guide', cascade='all, delete-orphan')
-    schools = relationship('School', back_populates='guide', cascade='all, delete-orphan')
-    students = relationship('Student', back_populates='guide', cascade='all, delete-orphan')
-    payments = relationship('Payment', back_populates='user', cascade='all, delete-orphan')
+    events = relationship('Event', back_populates='organizer', cascade='all, delete-orphan')
 
     @validates('email')
     def validate_email(self, key, value):
@@ -56,216 +51,322 @@ class User(BaseModel, SerializerMixin):
         if not value.isdigit() or len(value) != 10:
             raise ValueError("Invalid Kenyan phone number")
         return value
-    
+
     @hybrid_property    
     def password_hash(self):
         raise AttributeError('Password hashes may not be viewed.')
-    
+
     @password_hash.setter
     def password_hash(self, password):
         if not password:
             raise ValueError("Password cannot be empty")
         self._password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
-    
+
     def authenticate(self, password):
         return bcrypt.check_password_hash(self._password_hash, password)
 
-    serialize_rules = ('-_password_hash', '-units', '-schools', '-students', '-payments')
+    serialize_rules = ('-_password_hash', '-events')
 
 class Student(BaseModel, SerializerMixin):
     __tablename__ = 'students'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
-    age = db.Column(db.Integer, nullable=False)
-    unit_id = db.Column(db.Integer, db.ForeignKey('units.id'))
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'))
-    guide_leader_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    membership_status = db.Column(db.String(10))
+    dob = db.Column(db.Date, nullable=False)  # Date of birth
+    category = db.Column(db.String(20), nullable=False)  # "rainbows", "brownies", "girl_guides", "rangers"
+    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)  # School the student is associated with
+    
+    # Relationships
+    school = relationship('School', back_populates='students')
+    @property
+    def age(self):
+        # Get the current date
+        today = self._get_current_date()
+        
+        # Check if dob is None or not a date instance
+        if self.dob is None:
+            raise ValueError("Date of birth must not be None.")
+        if not isinstance(self.dob, date):
+            raise TypeError(f"Expected a date instance for dob, got {type(self.dob)}.")
 
-    unit = relationship('Unit', back_populates='students', single_parent=True)
-    school = relationship('School', back_populates='students', single_parent=True)
-    guide = relationship('User', back_populates='students')
-    events = relationship('Event', secondary='student_events', back_populates='students')
+        # Calculate age
+        age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
+        return age
 
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'name': self.name,
-            'age': self.age,
-            'membership_status': self.membership_status,
-            'school': self.school.school_name if self.school else None, 
-            'school_headteacher': self.school.headteacher_name if self.school else None, 
-            'unit_name': self.unit.unit_name if self.unit else None,  
-            'guide_leader_name': self.guide.name if self.guide else None,
-        }
+    @staticmethod
+    def _get_current_date():
+        return date.today()
 
-    @validates('age')
-    def validate_age(self, key, value):
-        if value < 5 or value > 50:
-            raise ValueError("Age must be between 5 and 50")
+    def update_category(self):
+        age = self.age
+        if 5 <= age <= 7:
+            self.category = "rainbows"
+        elif 8 <= age <= 10:
+            self.category = "brownies"
+        elif 11 <= age <= 14:
+            self.category = "girl_guides"
+        elif 15 <= age <= 17:
+            self.category = "rangers"
+
+    serialize_rules = ('-school',)
+
+class Youth(BaseModel, SerializerMixin):
+    __tablename__ = 'youths'
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    _password_hash = db.Column(db.String(128), nullable=False)
+    dob = db.Column(db.Date, nullable=False)  # Date of birth
+    category = db.Column(db.String(20), nullable=False, default='Young_Leader')
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    image = db.Column(db.String(255))
+    phone_number = db.Column(db.String(20), nullable=False)
+    token = db.Column(db.String(32), nullable=True)
+    registration_fee = db.Column(db.Float, default=500)  # Registration fee
+    yearly_payment = db.Column(db.Float, default=500)  # Yearly payment
+    is_active = db.Column(db.Boolean, default=False)
+    
+    # Relationships
+    schools = relationship('School', back_populates='guide_leader') 
+    payments = relationship('Payment', back_populates='youth', lazy=True, cascade='all, delete-orphan')
+
+    @validates('dob')
+    def validate_dob(self, key, dob_value):
+        # Ensure date of birth is not None
+        if dob_value is None:
+            raise ValueError("Date of birth must not be None.")
+
+        # Ensure dob is a date instance
+        if not isinstance(dob_value, date):
+            raise TypeError(f"Expected a date instance for dob, got {type(dob_value)}.")
+        
+        # # Validate age range
+        # age = self.age
+        # if age < 18 or age > 25:  # Define the age range for youths
+        #     raise ValueError("Youth age must be between 18 and 25 years")
+        
+        return dob_value
+
+    @property
+    def age(self):
+        # Get the current date
+        today = self._get_current_date()
+
+        # Check if dob is None or not a date instance
+        if self.dob is None:
+            raise ValueError("Date of birth must not be None.")
+        if not isinstance(self.dob, date):
+            raise TypeError(f"Expected a date instance for dob, got {type(self.dob)}.")
+
+        # Calculate age
+        age = today.year - self.dob.year - ((today.month, today.day) < (self.dob.month, self.dob.day))
+        return age
+
+    @staticmethod
+    def _get_current_date():
+        return date.today()
+
+    def update_category(self):
+        """Update category based on age."""
+        age = self.age
+        if 18 <= age < 30:
+            self.category = "Young_Leader"
+        elif 30 <= age <= 50:
+            self.category = "Bravo"
+            
+    @validates('email')
+    def validate_email(self, key, value):
+        if '@' not in value:
+            raise ValueError("Invalid email provided")
         return value
 
-class Unit(BaseModel, SerializerMixin):
-    __tablename__ = 'units'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    unit_name = db.Column(db.String(50), nullable=False)
-    min_age = db.Column(db.Integer, nullable=False)
-    max_age = db.Column(db.Integer, nullable=False)
-    guide_id = db.Column(db.Integer, db.ForeignKey('users.id'))
+    @validates('phone_number')
+    def validate_phone_number(self, key, value):
+        if not value.isdigit() or len(value) != 10:
+            raise ValueError("Invalid Kenyan phone number")
+        return value
 
-    guide = relationship('User', back_populates='units')
-    students = relationship('Student', back_populates='unit')  
-    reports = relationship('Report', back_populates='unit')
+    @hybrid_property    
+    def password_hash(self):
+        raise AttributeError('Password hashes may not be viewed.')
 
-    serialize_rules = ('-guide', '-students', '-reports')
+    @password_hash.setter
+    def password_hash(self, password):
+        if not password:
+            raise ValueError("Password cannot be empty")
+        self._password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
+
+    def authenticate(self, password):
+        return bcrypt.check_password_hash(self._password_hash, password)
+
+    serialize_rules = ('-schools', '-payments', '-_password_hash')
 
 class School(BaseModel, SerializerMixin):
     __tablename__ = 'schools'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     school_name = db.Column(db.String(100), nullable=False)
+    _password_hash = db.Column(db.String(128), nullable=False)
+    email = db.Column(db.String(100), unique=True, nullable=False)
+    phone_number = db.Column(db.String(20), nullable=False)
     county = db.Column(db.String(50), nullable=False)
+    token = db.Column(db.String(32), nullable=True)
     headteacher_name = db.Column(db.String(100))
     school_type = db.Column(db.String(20))
-    registration_date = db.Column(db.Date)
-    guide_id = db.Column(db.Integer, db.ForeignKey('users.id'))
-    
-    guide = relationship('User', back_populates='schools')
+    registration_date = db.Column(db.DateTime, default=db.func.now())
+    guide_leader_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)  # Youth guide leader for the school
+    is_active = db.Column(db.Boolean, default=False)
+
+    guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
     students = relationship('Student', back_populates='school') 
-    events = relationship('Event', back_populates='school')
-    reports = relationship('Report', back_populates='school')
     payments = relationship('Payment', back_populates='school', cascade='all, delete-orphan')
+    events = relationship('Event', back_populates='school', cascade='all, delete-orphan')  # Added relationship for events
+    financial_reports = relationship("FinancialReport", back_populates="school")
+      
+    serialize_rules = ('-payments', '-events', '-_password_hash')
 
-    serialize_rules = ('-guide', '-students', '-events', '-reports', '-payments')
-
-    @property
-    def student_count(self):
-        return len(self.students)
-    
     def calculate_total_subscription(self):
-        # Assuming each student contributes a fixed subscription amount
-        subscription_amount = 200.0  # You can adjust this value or make it dynamic
-        return self.student_count * subscription_amount
-
-    @property
-    def total_subscription_fees(self):
-        return self.student_count * 200
+        subscription_amount = 200.0  # Subscription amount
+        return len(self.students) * subscription_amount
     
-    def to_dict(self):
-        return {
-            'id': self.id,
-            'school_name': self.school_name,
-            'headteacher_name': self.headteacher_name,
-            'total_subscription_due': self.calculate_total_subscription(),
-            'students_count': len(self.students),
-            'school_type': self.school_type,
-            'county': self.county,
-            'registration_date': self.registration_date.strftime('%Y-%m-%d') if self.registration_date else None,
-            'guide_id': self.guide.name if self.guide else None,
-        }
+    @validates('email')
+    def validate_email(self, key, value):
+        if '@' not in value:
+            raise ValueError("Invalid email provided")
+        return value
 
-class Event(BaseModel, SerializerMixin):
-    __tablename__ = 'events'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    event_name = db.Column(db.String(100), nullable=False)
-    event_date = db.Column(db.Date, nullable=False)
-    event_type = db.Column(db.String(50))  
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'))
+    @validates('phone_number')
+    def validate_phone_number(self, key, value):
+        if not value.isdigit() or len(value) != 10:
+            raise ValueError("Invalid Kenyan phone number")
+        return value
 
-    school = relationship('School', back_populates='events')
-    students = relationship('Student', secondary='student_events', back_populates='events')
+    @hybrid_property    
+    def password_hash(self):
+        raise AttributeError('Password hashes may not be viewed.')
 
-    serialize_rules = ('-school', '-students')
+    @password_hash.setter
+    def password_hash(self, password):
+        if not password:
+            raise ValueError("Password cannot be empty")
+        self._password_hash = bcrypt.generate_password_hash(password).decode('utf-8')
 
-class StudentEvent(BaseModel, SerializerMixin):
-    __tablename__ = 'student_events'
-    
-    student_id = db.Column(db.Integer, db.ForeignKey('students.id'), primary_key=True)
-    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), primary_key=True)
-
+    def authenticate(self, password):
+        return bcrypt.check_password_hash(self._password_hash, password)
 class Payment(BaseModel, SerializerMixin):
     __tablename__ = 'payments'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)  # Nullable for user
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)  # Nullable for school
     amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(10))
     payment_date = db.Column(db.Date)
     payment_method = db.Column(db.String(20))
 
-    user = relationship('User', back_populates='payments')
+    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
+    youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)  # Added youth_id for payments
+
     school = relationship('School', back_populates='payments')
+    youth = relationship('Youth', back_populates='payments')  # Added relationship for youths
 
     @validates('user_id', 'school_id')
     def validate_payment_relationship(self, key, value):
         if key == 'user_id' and value is not None and self.school_id is not None:
             raise ValueError("Payment cannot be linked to both user and school.")
-        if key == 'school_id' and value is not None and self.user_id is not None:
-            raise ValueError("Payment cannot be linked to both user and school.")
         return value
 
-
-class Report(BaseModel, SerializerMixin):
-    __tablename__ = 'reports'
-    
-    id = db.Column(db.Integer, primary_key=True)
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'))
-    unit_id = db.Column(db.Integer, db.ForeignKey('units.id'))
-    total_membership_fees_collected = db.Column(db.Float)
-    report_date = db.Column(db.Date)
-    report_type = db.Column(db.String(50))
-
-    school = relationship('School', back_populates='reports')
-    unit = relationship('Unit', back_populates='reports')
-
-    serialize_rules = ('-school', '-unit')
-
-class PaymentReminder(BaseModel, SerializerMixin):
-    __tablename__ = 'payment_reminders'
+    def total_payment_due(self, youth):
+        """Calculate total payment due for a youth, including registration fee and yearly payment."""
+        return youth.registration_fee + youth.yearly_payment
+class Event(BaseModel, SerializerMixin):
+    __tablename__ = 'events'
 
     id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('students.id'))
-    reminder_date = db.Column(db.Date)
-    reminder_type = db.Column(db.String(20))  
-    status = db.Column(db.String(20))  
+    title = db.Column(db.String(100), nullable=False)
+    description = db.Column(db.Text)
+    event_date = db.Column(db.Date, nullable=False)
+    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
+    organizer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # User organizing the event
 
-    student = relationship('Student', backref='payment_reminders')
+    school = relationship('School', back_populates='events')
+    organizer = relationship('User', back_populates='events')
 
-    def to_dict(self):
+    @validates('event_date')
+    def validate_event_date(self, key, event_date_value):
+        if event_date_value < datetime.now().date():
+            raise ValueError("Event date must be in the future.")
+        return event_date_value
+
+    serialize_rules = ('-school', '-organizer')
+
+class FinancialReport(BaseModel, SerializerMixin):
+    __tablename__ = 'financial_reports'
+
+    id = db.Column(db.Integer, primary_key=True)
+    report_date = db.Column(db.Date, default=db.func.now())
+    total_income = db.Column(db.Float, nullable=False)
+    total_expenditure = db.Column(db.Float, nullable=False)
+    net_profit = db.Column(db.Float, nullable=False)
+
+    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
+
+    school = relationship('School', back_populates='financial_reports')
+
+    serialize_rules = ('-school',)
+    @classmethod
+    def generate_report(cls, start_date, end_date):
+        """
+        Generate a financial report for a given date range.
+        
+        Args:
+            start_date (date): The start date for the report.
+            end_date (date): The end date for the report.
+
+        Returns:
+            dict: A dictionary containing the total income, total expenditure, and net profit.
+        """
+        # Query to sum up the total income and expenditure within the given date range
+        results = db.session.query(
+            db.func.sum(cls.total_income).label('total_income'),
+            db.func.sum(cls.total_expenditure).label('total_expenditure'),
+        ).filter(
+            cls.report_date >= start_date,
+            cls.report_date <= end_date
+        ).one_or_none()
+
+        if results is None:
+            return {
+                "total_income": 0,
+                "total_expenditure": 0,
+                "net_profit": 0,
+            }
+
+        total_income = results.total_income if results.total_income is not None else 0
+        total_expenditure = results.total_expenditure if results.total_expenditure is not None else 0
+        net_profit = total_income - total_expenditure
+
         return {
-            "id": self.id,
-            "student_id": self.student_id,
-            "reminder_date": self.reminder_date.strftime('%Y-%m-%d') if self.reminder_date else None,
-            "reminder_type": self.reminder_type,
-            "status": self.status,
-            "student_name": self.student.name if self.student else None
+            "total_income": total_income,
+            "total_expenditure": total_expenditure,
+            "net_profit": net_profit,
         }
 
-class AgeTransitionNotification(BaseModel, SerializerMixin):
-    __tablename__ = 'age_transition_notifications'
+# Helper function to update student and youth categories
+def update_student_categories():
+    students = Student.query.all()
+    for student in students:
+        student.update_category()
+        db.session.commit()
 
-    id = db.Column(db.Integer, primary_key=True)
-    student_id = db.Column(db.Integer, db.ForeignKey('students.id'))
-    from_unit = db.Column(db.String(50))
-    to_unit = db.Column(db.String(50))
-    notification_date = db.Column(db.Date)
-    age_transition_status = db.Column(db.String(20))
-    status = db.Column(db.String(20))
+def update_youth_categories():
+    youths = Youth.query.all()
+    for youth in youths:
+        youth.update_category()
+        db.session.commit()
 
-    student = relationship('Student', backref='notifications')
+# Financial Report Example Usage
+def generate_financial_report():
+    start_date = datetime.now() - timedelta(days=10000)  # Last 30 days
+    end_date = datetime.now()
+    report = FinancialReport.generate_report(start_date, end_date)
+    return report
 
-    def to_dict(self):
-        return {
-            "id": self.id,
-            "student_id": self.student_id,
-            'from_unit': self.from_unit,
-            'to_unit': self.to_unit,
-            'status': self.status,
-            "notification_date": self.notification_date.strftime('%Y-%m-%d') if self.notification_date else None,
-            "age_transition_status": self.age_transition_status,
-            "student_name": self.student.name if self.student else None
-        }
