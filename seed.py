@@ -63,10 +63,10 @@ def seed_database():
 
     # Create Students
     students = [
-        Student(name="Kenyan Boy", dob=datetime(2010, 5, 15), category="rainbows", school_id=1),
-        Student(name="Kenyan Girl", dob=datetime(2008, 3, 10), category="brownies", school_id=1),
-        Student(name="International Student", dob=datetime(2004, 8, 21), category="girl_guides", school_id=2),
-        Student(name="Young Scout", dob=datetime(2001, 1, 5), category="rangers", school_id=2),
+        Student(name="Kenyan Boy", dob=datetime(2010, 5, 15), category="rainbows", school_id=1, parentName='John Wambua', parentPhone='0717070707'),
+        Student(name="Kenyan Girl", dob=datetime(2008, 3, 10), category="brownies", school_id=1,parentName='John Wambua', parentPhone='0717070707'),
+        Student(name="International Student", dob=datetime(2004, 8, 21), category="girl_guides", school_id=2, parentName='John Wambua', parentPhone='0717070707'),
+        Student(name="Young Scout", dob=datetime(2001, 1, 5), category="rangers", school_id=2, parentName='John Wambua', parentPhone='0717070707'),
     ]
     
     # Add students to the session and commit

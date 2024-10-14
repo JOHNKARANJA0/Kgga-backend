@@ -75,6 +75,8 @@ class Student(BaseModel, SerializerMixin):
     dob = db.Column(db.Date, nullable=False)  # Date of birth
     category = db.Column(db.String(20), nullable=False)  # "rainbows", "brownies", "girl_guides", "rangers"
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)  # School the student is associated with
+    parentName = db.Column(db.String(100), nullable= True)
+    parentPhone = db.Column(db.String(100), nullable= True)
     
     # Relationships
     school = relationship('School', back_populates='students')

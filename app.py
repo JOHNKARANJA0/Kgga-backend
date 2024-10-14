@@ -13,7 +13,7 @@ from utils import generate_totp_secret, generate_totp_token, send_email
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]}})
 
-app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URI')   #'sqlite:///app.db' 
+app.config['SQLALCHEMY_DATABASE_URI'] = os.environ.get('DATABASE_URI')  #'sqlite:///app.db' 
 app.config["JWT_SECRET_KEY"] = "your_jwt_secret_key"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=1)
 app.config["SECRET_KEY"] = "your_secret_key"
@@ -35,42 +35,19 @@ from flask import request
 from flask_restful import Resource
 from flask_jwt_extended import create_access_token
 
-class UserLogin(Resource):
+class Login(Resource):
     def post(self):
         request_json = request.get_json()
         email = request_json.get('email')
         password = request_json.get('password')
 
-        user = User.query.filter_by(email=email).first()
-        if user and user.authenticate(password):
-            access_token = create_access_token(identity=user.id, additional_claims={"role": "user"})
-            return {"access_token": access_token}, 200
-        return {"message": "Invalid email or password"}, 401
+        # Try to authenticate with each model
+        for model, role in [(User, "user"), (Youth, "youth"), (School, "school")]:
+            entity = model.query.filter_by(email=email).first()
+            if entity and entity.authenticate(password):
+                access_token = create_access_token(identity=entity.id, additional_claims={"role": role})
+                return {"access_token": access_token, "role": role}, 200
 
-
-class YouthLogin(Resource):
-    def post(self):
-        request_json = request.get_json()
-        email = request_json.get('email')
-        password = request_json.get('password')
-
-        youth = Youth.query.filter_by(email=email).first()
-        if youth and youth.authenticate(password):
-            access_token = create_access_token(identity=youth.id, additional_claims={"role": "youth"})
-            return {"access_token": access_token}, 200
-        return {"message": "Invalid email or password"}, 401
-
-
-class SchoolLogin(Resource):
-    def post(self):
-        request_json = request.get_json()
-        email = request_json.get('email')
-        password = request_json.get('password')
-
-        school = School.query.filter_by(email=email).first()
-        if school and school.authenticate(password):
-            access_token = create_access_token(identity=school.id, additional_claims={"role": "school"})
-            return {"access_token": access_token}, 200
         return {"message": "Invalid email or password"}, 401
 
 
@@ -354,9 +331,7 @@ class FinancialReportResource(Resource):
         return '', 204
 
 # Routes
-api.add_resource(UserLogin, '/userlogin')
-api.add_resource(YouthLogin, '/youthlogin')
-api.add_resource(SchoolLogin, '/schoollogin')
+api.add_resource(Login, '/login')
 api.add_resource(Logout, '/logout')
 api.add_resource(CheckSession, '/check_session')
 
