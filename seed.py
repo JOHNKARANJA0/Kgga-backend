@@ -16,10 +16,10 @@ def seed_database():
 
     # Create Users
     users = [
-        User(name="John Doe", email="john@example.com", phone_number="0712345678", role="admin"),
-        User(name="Jane Smith", email="jane@example.com", phone_number="0712345679", role="finance"),
-        User(name="Samuel Kim", email="samuel@example.com", phone_number="0712345680", role="admin"),
-        User(name="Alice Wambui", email="alice@example.com", phone_number="0712345681", role="finance"),
+        User(name="John Doe", email="john@example.com", phone_number="0712345678", roles="admin"),
+        User(name="Jane Smith", email="jane@example.com", phone_number="0712345679", roles="finance"),
+        User(name="Samuel Kim", email="samuel@example.com", phone_number="0712345680", roles="admin"),
+        User(name="Alice Wambui", email="alice@example.com", phone_number="0712345681", roles="finance"),
     ]
     
     # Set passwords

@@ -31,7 +31,7 @@ class User(BaseModel, SerializerMixin):
     email = db.Column(db.String(100), unique=True, nullable=False)
     image = db.Column(db.String(255))
     phone_number = db.Column(db.String(20), nullable=False)
-    role = db.Column(db.String(20), nullable=False)
+    roles = db.Column(db.String(20), nullable=False)
     _password_hash = db.Column(db.String(128), nullable=False)
     token = db.Column(db.String(32), nullable=True)
     token_verified = db.Column(db.Boolean, default=True)
