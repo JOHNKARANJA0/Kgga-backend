@@ -202,7 +202,15 @@ class Youth(BaseModel, SerializerMixin):
     def authenticate(self, password):
         return bcrypt.check_password_hash(self._password_hash, password)
 
-    serialize_rules = ('-schools', '-payments', '-_password_hash')
+    serialize_rules = ('-schools', '-payments.youth', '-_password_hash', 
+                       'payments.id', 'payments.payment_method', 'payments.amount', 
+                       'payments.payment_date', 'payments.status', 
+                       'payments.school_id', 'payments.created_at', 'payments.updated_at')
+
+    # To customize serialization for payments
+    @property
+    def payment_data(self):
+        return [payment.to_dict() for payment in self.payments]
 
 class School(BaseModel, SerializerMixin):
     __tablename__ = 'schools'
@@ -226,7 +234,7 @@ class School(BaseModel, SerializerMixin):
     events = relationship('Event', back_populates='school', cascade='all, delete-orphan')  # Added relationship for events
     financial_reports = relationship("FinancialReport", back_populates="school")
       
-    serialize_rules = ('-payments', '-events', '-_password_hash')
+    serialize_rules = ('-payments.school', '-events', '-guide_leader.payments','-_password_hash')
 
     def calculate_total_subscription(self):
         subscription_amount = 200.0  # Subscription amount
@@ -280,6 +288,7 @@ class Payment(BaseModel, SerializerMixin):
     def total_payment_due(self, youth):
         """Calculate total payment due for a youth, including registration fee and yearly payment."""
         return youth.registration_fee + youth.yearly_payment
+    
 class Event(BaseModel, SerializerMixin):
     __tablename__ = 'events'
 
@@ -368,7 +377,7 @@ def update_youth_categories():
 
 # Financial Report Example Usage
 def generate_financial_report():
-    start_date = datetime.now() - timedelta(days=10000)  # Last 30 days
+    start_date = datetime.now() - timedelta(days=1000000000)  # Last 30 days
     end_date = datetime.now()
     report = FinancialReport.generate_report(start_date, end_date)
     return report

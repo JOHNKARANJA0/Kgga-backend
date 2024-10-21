@@ -82,7 +82,7 @@ def seed_database():
         Payment(school_id=1, youth_id=None, amount=10000, status="completed", payment_date=datetime.now(), payment_method="mobile money"),  # Yearly payment for Young Adult 1
         Payment(school_id=None, youth_id=2, amount=500, status="completed", payment_date=datetime.now(), payment_method="bank transfer"),  # Payment for Young Adult 2
         Payment(school_id=1, youth_id=None, amount=20500, status="completed", payment_date=datetime.now(), payment_method="mobile money"),  # Yearly payment for Young Adult 2
-        Payment(school_id=None, youth_id=3, amount=500, status="completed", payment_date=datetime.now(), payment_method="bank transfer"),  # Payment for Young Adult 3
+        Payment(school_id=None, youth_id=2, amount=500, status="completed", payment_date=datetime.now(), payment_method="bank transfer"),  # Payment for Young Adult 3
         Payment(school_id=2, youth_id=None, amount=10500, status="completed", payment_date=datetime.now(), payment_method="mobile money"),  # Yearly payment for Young Adult 3
     ]
     

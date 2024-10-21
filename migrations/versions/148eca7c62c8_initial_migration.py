@@ -9,11 +9,13 @@ from alembic import op
 import sqlalchemy as sa
 
 
+
 # revision identifiers, used by Alembic.
 revision = '148eca7c62c8'
 down_revision = '9faef8cf0240'
 branch_labels = None
 depends_on = None
+
 
 
 def upgrade():
