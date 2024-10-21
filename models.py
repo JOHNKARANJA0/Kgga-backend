@@ -118,6 +118,7 @@ class Youth(BaseModel, SerializerMixin):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(100), nullable=False)
     _password_hash = db.Column(db.String(128), nullable=False)
+    roles = db.Column(db.String(128), nullable=True)
     dob = db.Column(db.Date, nullable=False)  # Date of birth
     category = db.Column(db.String(20), nullable=False, default='Young_Leader')
     email = db.Column(db.String(100), unique=True, nullable=False)
