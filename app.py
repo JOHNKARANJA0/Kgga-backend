@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import os
-from datetime import timedelta
+from datetime import timedelta, datetime
 import pyotp
 from flask import Flask, request, jsonify
 from flask_migrate import Migrate
@@ -11,8 +11,10 @@ from models import db, User, Student, School, Event, Payment, FinancialReport, Y
 from utils import generate_totp_secret, generate_totp_token, send_email
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": "*", "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]}})
-
+CORS(app, resources={r"/*": {
+    "origins": "*",
+    "methods": ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+}})
 app.config['SQLALCHEMY_DATABASE_URI'] =os.environ.get('DATABASE_URI') #'sqlite:///app.db' 
 app.config["JWT_SECRET_KEY"] = "your_jwt_secret_key"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=1)
@@ -185,7 +187,17 @@ class YouthResource(Resource):
 
     def post(self):
         data = request.get_json()
-        new_youth = Youth(**data)
+        if 'dob' in data:
+            try:
+                data['dob'] = datetime.strptime(data['dob'], '%Y-%m-%d').date()
+            except ValueError:
+                return {"error": "Invalid date format. Use YYYY-MM-DD."}, 400
+        if 'password' not in data:
+            return {"error": "Password is required."}, 400
+        new_youth = Youth(
+            **data,
+            password_hash=bcrypt.generate_password_hash(data['password']).decode('utf-8')
+        )
         db.session.add(new_youth)
         db.session.commit()
         return new_youth.to_dict(), 201
@@ -194,9 +206,14 @@ class YouthResource(Resource):
         youth = Youth.query.get_or_404(youth_id)
         data = request.get_json()
         for key, value in data.items():
+            if key == 'dob':
+                try:
+                    value = datetime.strptime(value, '%Y-%m-%d').date()
+                except ValueError:
+                    return {"error": "Invalid date format. Use YYYY-MM-DD."}, 400
             setattr(youth, key, value)
         db.session.commit()
-        return youth.to_dict()
+        return youth.to_dict(), 200
 
     def delete(self, youth_id):
         youth = Youth.query.get_or_404(youth_id)
@@ -329,7 +346,53 @@ class FinancialReportResource(Resource):
         db.session.delete(report)
         db.session.commit()
         return '', 204
+class ForgotPassword(Resource):
+    def post(self):
+        data = request.get_json()
+        email = data.get('email')
 
+        # Find the user by email
+        user = User.query.filter_by(email=email).first() or \
+               Youth.query.filter_by(email=email).first() or \
+               School.query.filter_by(email=email).first()
+
+        if not user:
+            return {"message": "User not found."}, 404
+
+        # Generate password reset token
+        token = generate_totp_token(email)
+
+        # Send email with reset link (you'll need to implement send_email)
+        reset_link = f"http://yourfrontend.com/reset-password?token={token}"
+        send_email(user.email, "Password Reset Request", f"Reset your password by clicking this link: {reset_link}")
+
+        return {"message": "Password reset email sent."}, 200
+    
+class ResetPassword(Resource):
+    def post(self):
+        data = request.get_json()
+        token = data.get('token')
+        new_password = data.get('new_password')
+
+        # Decode the token
+        try:
+            email = get_jwt_identity(token)
+        except Exception as e:
+            return {"message": "Invalid or expired token."}, 401
+
+        # Find the user by email
+        user = User.query.filter_by(email=email).first() or \
+               Youth.query.filter_by(email=email).first() or \
+               School.query.filter_by(email=email).first()
+
+        if not user:
+            return {"message": "User not found."}, 404
+
+        # Update password
+        user.password_hash = bcrypt.generate_password_hash(new_password).decode('utf-8')
+        db.session.commit()
+
+        return {"message": "Password has been reset successfully."}, 200
 # Routes
 api.add_resource(Login, '/login')
 api.add_resource(Logout, '/logout')
@@ -342,6 +405,8 @@ api.add_resource(SchoolResource, '/schools', '/schools/<int:school_id>')
 api.add_resource(EventResource, '/events', '/events/<int:event_id>')
 api.add_resource(PaymentResource, '/payments', '/payments/<int:payment_id>')
 api.add_resource(FinancialReportResource, '/financial_reports', '/financial_reports/<int:report_id>')
+api.add_resource(ForgotPassword, '/forgot-password')
+api.add_resource(ResetPassword, '/reset-password')
 
 if __name__ == '__main__':
     app.run(port=5555)

@@ -16,7 +16,7 @@ def send_email(to_email, subject, body):
     """Sends an email with the provided subject and body."""
     smtp_server = "smtp.gmail.com"
     smtp_port = 587
-    from_email = "ireporter56@gmail.com"  # Replace with your Gmail
+    from_email = "ireporter56@gmail.com" 
     from_password = "ltxf kexm yuko bspi"
 
     msg = MIMEMultipart()
