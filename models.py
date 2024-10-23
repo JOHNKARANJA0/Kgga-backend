@@ -362,6 +362,15 @@ class FinancialReport(BaseModel, SerializerMixin):
             "net_profit": net_profit,
         }
 
+class PasswordResetToken(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    email = db.Column(db.String(120), nullable=False)
+    token = db.Column(db.String(120), nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+
+    def is_expired(self):
+        return datetime.now() > self.expires_at
+
 # Helper function to update student and youth categories
 def update_student_categories():
     students = Student.query.all()

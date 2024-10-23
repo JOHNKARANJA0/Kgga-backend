@@ -7,7 +7,7 @@ from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required, get_jwt
 from flask_restful import Api, Resource
 from flask_cors import CORS
-from models import db, User, Student, School, Event, Payment, FinancialReport, Youth, bcrypt, update_student_categories, update_youth_categories, generate_financial_report
+from models import db, User, Student, School, Event, Payment, FinancialReport, Youth, bcrypt, update_student_categories, update_youth_categories, generate_financial_report, PasswordResetToken
 from utils import generate_totp_secret, generate_totp_token, send_email
 
 app = Flask(__name__)
@@ -357,13 +357,19 @@ class ForgotPassword(Resource):
                School.query.filter_by(email=email).first()
 
         if not user:
-            return {"message": "User not found."}, 404
+            return {"error": "User not found."}, 404
 
-        # Generate password reset token
-        token = generate_totp_token(email)
-
-        # Send email with reset link (you'll need to implement send_email)
-        reset_link = f"http://yourfrontend.com/reset-password?token={token}"
+        totp_secret = generate_totp_secret() 
+        token = generate_totp_token(totp_secret)
+        expiration_time = datetime.now() + timedelta(hours=1)
+        password_reset = PasswordResetToken(
+            email=user.email,
+            token=token,
+            expires_at=expiration_time
+        )
+        db.session.add(password_reset)
+        db.session.commit()
+        reset_link = f"https://voluble-kelpie-0d72d6.netlify.app/reset-password?token={token}&email={user.email}"
         send_email(user.email, "Password Reset Request", f"Reset your password by clicking this link: {reset_link}")
 
         return {"message": "Password reset email sent."}, 200
@@ -373,23 +379,21 @@ class ResetPassword(Resource):
         data = request.get_json()
         token = data.get('token')
         new_password = data.get('new_password')
+        reset_token = PasswordResetToken.query.filter_by(token=token).first()
 
-        # Decode the token
-        try:
-            email = get_jwt_identity(token)
-        except Exception as e:
-            return {"message": "Invalid or expired token."}, 401
-
-        # Find the user by email
-        user = User.query.filter_by(email=email).first() or \
-               Youth.query.filter_by(email=email).first() or \
-               School.query.filter_by(email=email).first()
+        if not reset_token:
+            return {"error": "Invalid or expired token."}, 401
+        if reset_token.expires_at < datetime.now():
+            return {"error": "Token has expired."}, 401
+        user = User.query.filter_by(email=reset_token.email).first() or \
+               Youth.query.filter_by(email=reset_token.email).first() or \
+               School.query.filter_by(email=reset_token.email).first()
 
         if not user:
-            return {"message": "User not found."}, 404
-
-        # Update password
-        user.password_hash = bcrypt.generate_password_hash(new_password).decode('utf-8')
+            return {"error": "User not found."}, 404
+        user.password_hash = new_password
+        db.session.commit()
+        db.session.delete(reset_token)
         db.session.commit()
 
         return {"message": "Password has been reset successfully."}, 200

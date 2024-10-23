@@ -35,7 +35,7 @@ def seed_database():
 # Create Youths with registration fee and yearly payment
     youths = [
         Youth(name="Young Adult 1", email="adult1@example.com", phone_number="0712345678", dob=datetime(2000, 1, 1), registration_fee=500, yearly_payment=500, roles="SuperYouth"),
-        Youth(name="Young Adult 2", email="adult2@example.com", phone_number="0712345678", dob=datetime(1998, 6, 12), registration_fee=500, yearly_payment=500),
+        Youth(name="Young Adult 2", email="jonniekaras@gmail.com", phone_number="0712345678", dob=datetime(1998, 6, 12), registration_fee=500, yearly_payment=500),
         Youth(name="Young Adult 3", email="adult3@example.com", phone_number="0712345678", dob=datetime(1980, 7, 20), registration_fee=500, yearly_payment=500),
     ]
     
