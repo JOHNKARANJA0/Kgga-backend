@@ -373,11 +373,11 @@ class Event(BaseModel, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
-    #image = db.Column(db.String, nullable=True)
+    image = db.Column(db.String, nullable=True)
     description = db.Column(db.Text)
     event_date = db.Column(db.Date, nullable=False)
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
-    organizer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)  # User organizing the event
+    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
+    organizer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
 
     school = relationship('School', back_populates='events')
     organizer = relationship('User', back_populates='events')
