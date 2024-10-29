@@ -2,11 +2,12 @@
 
 from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime, date, timedelta
-from sqlalchemy import MetaData
+from sqlalchemy import MetaData, func
 from sqlalchemy.orm import validates, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy_serializer import SerializerMixin
 from flask_bcrypt import Bcrypt
+import uuid
 
 bcrypt = Bcrypt()
 
@@ -34,9 +35,9 @@ class User(BaseModel, SerializerMixin):
     roles = db.Column(db.String(20), nullable=False)
     _password_hash = db.Column(db.String(128), nullable=False)
     token = db.Column(db.String(32), nullable=True)
+    membership_no = db.Column(db.Integer, nullable=False, default=0)
     token_verified = db.Column(db.Boolean, default=True)
     is_active = db.Column(db.Boolean, default=True)
-    membership_renewal_status = db.Column(db.String(20))
 
     events = relationship('Event', back_populates='organizer', cascade='all, delete-orphan')
 
@@ -77,6 +78,7 @@ class Student(BaseModel, SerializerMixin):
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)  # School the student is associated with
     parentName = db.Column(db.String(100), nullable= True)
     parentPhone = db.Column(db.String(100), nullable= True)
+    membership_no = db.Column(db.Integer, nullable=False, default=0)
     
     # Relationships
     school = relationship('School', back_populates='students')
@@ -112,6 +114,7 @@ class Student(BaseModel, SerializerMixin):
 
     serialize_rules = ('-school',)
 
+
 class Youth(BaseModel, SerializerMixin):
     __tablename__ = 'youths'
 
@@ -119,20 +122,51 @@ class Youth(BaseModel, SerializerMixin):
     name = db.Column(db.String(100), nullable=False)
     _password_hash = db.Column(db.String(128), nullable=False)
     roles = db.Column(db.String(128), nullable=True)
-    dob = db.Column(db.Date, nullable=False)  # Date of birth
+    dob = db.Column(db.Date, nullable=False)
     category = db.Column(db.String(20), nullable=False, default='Young_Leader')
     email = db.Column(db.String(100), unique=True, nullable=False)
     image = db.Column(db.String(255))
+    membership_no = db.Column(db.Integer, nullable=False,default=0)
     phone_number = db.Column(db.String(20), nullable=False)
     token = db.Column(db.String(32), nullable=True)
-    registration_fee = db.Column(db.Float, default=500)  # Registration fee
-    yearly_payment = db.Column(db.Float, default=500)  # Yearly payment
+    
+    registration_fee = db.Column(db.Float, default=500.0)
+    yearly_payment_amount = db.Column(db.Float, default=500.0)
+    last_payment_date = db.Column(db.DateTime)
+    payment_status = db.Column(db.String(20), default='unpaid')
     is_active = db.Column(db.Boolean, default=False)
     
-    # Relationships
-    schools = relationship('School', back_populates='guide_leader') 
-    payments = relationship('Payment', back_populates='youth', lazy=True, cascade='all, delete-orphan')
+    schools = relationship('School', back_populates='guide_leader')
+    payments = relationship('Payment', back_populates='youth', cascade='all, delete-orphan')
 
+    def update_payment_status(self):
+        current_year = datetime.now().year
+        
+        paid_amount = db.session.query(func.sum(Payment.amount))\
+            .filter(Payment.youth_id == self.id,
+                   Payment.payment_type == 'yearly',
+                   Payment.status == 'completed',
+                   Payment.payment_year == current_year)\
+            .scalar() or 0.0
+
+        self.yearly_payment_amount = 500 - paid_amount
+        self.last_payment_date = datetime.now()
+        
+        if paid_amount >= 500.0:
+            self.payment_status = 'paid'
+        elif paid_amount > 0:
+            self.payment_status = 'partial'
+        else:
+            self.payment_status = 'unpaid'
+
+
+    @validates('phone_number')
+    
+    def validate_phone_number(self, key, value):
+        if not value.isdigit() or len(value) != 10:
+            raise ValueError("Invalid Kenyan phone number")
+        return value
+    
     @validates('dob')
     def validate_dob(self, key, dob_value):
         # Ensure date of birth is not None
@@ -149,7 +183,6 @@ class Youth(BaseModel, SerializerMixin):
         #     raise ValueError("Youth age must be between 18 and 25 years")
         
         return dob_value
-
     @property
     def age(self):
         # Get the current date
@@ -176,19 +209,6 @@ class Youth(BaseModel, SerializerMixin):
             self.category = "Young_Leader"
         elif 30 <= age <= 50:
             self.category = "Bravo"
-            
-    @validates('email')
-    def validate_email(self, key, value):
-        if '@' not in value:
-            raise ValueError("Invalid email provided")
-        return value
-
-    @validates('phone_number')
-    def validate_phone_number(self, key, value):
-        if not value.isdigit() or len(value) != 10:
-            raise ValueError("Invalid Kenyan phone number")
-        return value
-
     @hybrid_property    
     def password_hash(self):
         raise AttributeError('Password hashes may not be viewed.')
@@ -205,12 +225,7 @@ class Youth(BaseModel, SerializerMixin):
     serialize_rules = ('-schools', '-payments.youth', '-_password_hash', 
                        'payments.id', 'payments.payment_method', 'payments.amount', 
                        'payments.payment_date', 'payments.status', 
-                       'payments.school_id', 'payments.created_at', 'payments.updated_at')
-
-    # To customize serialization for payments
-    @property
-    def payment_data(self):
-        return [payment.to_dict() for payment in self.payments]
+                       'payments.school_id', 'payments.created_at', 'payments.updated_at', '-age')
 
 class School(BaseModel, SerializerMixin):
     __tablename__ = 'schools'
@@ -224,17 +239,49 @@ class School(BaseModel, SerializerMixin):
     token = db.Column(db.String(32), nullable=True)
     headteacher_name = db.Column(db.String(100))
     school_type = db.Column(db.String(20))
+    membership_no = db.Column(db.Integer, nullable=False, default=0)
     registration_date = db.Column(db.DateTime, default=db.func.now())
-    guide_leader_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)  # Youth guide leader for the school
+    guide_leader_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=False)
 
-    guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
-    students = relationship('Student', back_populates='school') 
-    payments = relationship('Payment', back_populates='school', cascade='all, delete-orphan')
-    events = relationship('Event', back_populates='school', cascade='all, delete-orphan')  # Added relationship for events
+    yearly_payment_amount = db.Column(db.Float, default=0.0)
+    last_payment_date = db.Column(db.DateTime)
+    payment_status = db.Column(db.String(20), default='unpaid')
+    registration_fee = db.Column(db.Float, default=1000.0)
+
     financial_reports = relationship("FinancialReport", back_populates="school")
-      
-    serialize_rules = ('-payments.school', '-events', '-guide_leader.payments','-_password_hash')
+    events = relationship('Event', back_populates='school', cascade='all, delete-orphan')
+    guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
+    students = relationship('Student', back_populates='school')
+    payments = relationship('Payment', back_populates='school', cascade='all, delete-orphan')
+
+    serialize_rules = ('-payments.school', '-guide_leader.payments', '-_password_hash', '-events')
+
+    def calculate_yearly_payment(self):
+        return len(self.students) * 200.0
+
+    def update_payment_status(self):
+        yearly_total = self.calculate_yearly_payment()
+        self.yearly_payment_amount = self.calculate_yearly_payment()
+        current_year = datetime.now().year
+        
+        paid_amount = db.session.query(func.sum(Payment.amount))\
+            .filter(Payment.school_id == self.id,
+                   Payment.payment_type == 'yearly',
+                   Payment.status == 'completed',
+                   Payment.payment_year == current_year)\
+            .scalar() or 0.0
+
+        self.yearly_payment_amount = yearly_total - paid_amount
+        self.last_payment_date = datetime.now()
+        
+        if paid_amount >= yearly_total:
+            self.payment_status = 'paid'
+        elif paid_amount > 0:
+            self.payment_status = 'partial'
+        else:
+            self.payment_status = 'unpaid'
+
 
     def calculate_total_subscription(self):
         subscription_amount = 200.0  # Subscription amount
@@ -269,19 +316,50 @@ class Payment(BaseModel, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     amount = db.Column(db.Float, nullable=False)
-    status = db.Column(db.String(10))
-    payment_date = db.Column(db.Date)
-    payment_method = db.Column(db.String(20))
-
+    status = db.Column(db.String(20), default='pending')
+    payment_date = db.Column(db.DateTime, default=datetime.now)
+    payment_method = db.Column(db.String(20), default='mpesa')
+    
+    transaction_id = db.Column(db.String(50), unique=True)
+    phone_number = db.Column(db.String(20))
+    mpesa_receipt_number = db.Column(db.String(50), unique=True)
+    
+    payment_type = db.Column(db.String(20), nullable=False)
+    payment_year = db.Column(db.Integer, default=lambda: datetime.now().year)
+    
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
-    youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)  # Added youth_id for payments
+    youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
 
     school = relationship('School', back_populates='payments')
-    youth = relationship('Youth', back_populates='payments')  # Added relationship for youths
+    youth = relationship('Youth', back_populates='payments')
+    
 
-    @validates('user_id', 'school_id')
+    @validates('payment_type')
+    def validate_payment_type(self, key, value):
+        if value not in ['registration', 'yearly']:
+            raise ValueError("Payment type must be either 'registration' or 'yearly'")
+        return value
+
+    def generate_transaction_id(self):
+        return f"TXN-{uuid.uuid4().hex[:8].upper()}"
+
+    @validates('status')
+    def validate_status(self, key, value):
+        if value not in ['pending', 'completed', 'failed']:
+            raise ValueError("Invalid payment status")
+        return value
+
+    def process_payment(self):
+        """Process the payment and update related models"""
+        if self.status == 'completed':
+            if self.school_id:
+                self.school.update_payment_status()
+            elif self.youth_id:
+                self.youth.update_payment_status()
+
+    @validates('youth_id', 'school_id')
     def validate_payment_relationship(self, key, value):
-        if key == 'user_id' and value is not None and self.school_id is not None:
+        if key == 'youth_id' and value is not None and self.school_id is not None:
             raise ValueError("Payment cannot be linked to both user and school.")
         return value
 
@@ -294,6 +372,7 @@ class Event(BaseModel, SerializerMixin):
 
     id = db.Column(db.Integer, primary_key=True)
     title = db.Column(db.String(100), nullable=False)
+    #image = db.Column(db.String, nullable=True)
     description = db.Column(db.Text)
     event_date = db.Column(db.Date, nullable=False)
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=False)
@@ -386,8 +465,19 @@ def update_youth_categories():
 
 # Financial Report Example Usage
 def generate_financial_report():
-    start_date = datetime.now() - timedelta(days=1000000000)  # Last 30 days
+    start_date = datetime.now() - timedelta(days=1000)  # Last 30 days
     end_date = datetime.now()
     report = FinancialReport.generate_report(start_date, end_date)
     return report
+
+def update_completed_payments():
+    """Helper function to process all completed payments for both Youth and School."""
+    # Retrieve payments with status 'completed' that need processing
+    completed_payments = Payment.query.filter_by(status='completed').all()
+    
+    for payment in completed_payments:
+        payment.process_payment()
+    
+    # Commit any updates made by process_payment
+    db.session.commit()
 

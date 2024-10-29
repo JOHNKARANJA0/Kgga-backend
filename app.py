@@ -2,12 +2,15 @@
 import os
 from datetime import timedelta, datetime
 import pyotp
-from flask import Flask, request, jsonify
+from requests.auth import HTTPBasicAuth
+import requests
+import base64
+from flask import Flask, request, jsonify, request
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required, get_jwt
 from flask_restful import Api, Resource
 from flask_cors import CORS
-from models import db, User, Student, School, Event, Payment, FinancialReport, Youth, bcrypt, update_student_categories, update_youth_categories, generate_financial_report, PasswordResetToken
+from models import db, User, Student, School, Event, Payment, FinancialReport, Youth, bcrypt, update_student_categories, update_youth_categories, generate_financial_report, PasswordResetToken, update_completed_payments
 from utils import generate_totp_secret, generate_totp_token, send_email
 
 app = Flask(__name__)
@@ -19,7 +22,11 @@ app.config['SQLALCHEMY_DATABASE_URI'] =os.environ.get('DATABASE_URI') #'sqlite:/
 app.config["JWT_SECRET_KEY"] = "your_jwt_secret_key"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=1)
 app.config["SECRET_KEY"] = "your_secret_key"
-
+# M-PESA credentials
+CONSUMER_KEY = 'xem7gGqhAUa8ueAItC33JsWTnXpRjA0X8feF7yPBjc8ZfDQD'
+CONSUMER_SECRET = 'TPLkVjP8JeCS9rdA0hSuFzGh9rSMkUgBpemOlrdgDFSsiFPLpgGhA3DGHGdJmc4h'
+BUSINESS_SHORTCODE = '174379'
+PASSKEY = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
 app.json.compact = False
 jwt = JWTManager(app)       
 
@@ -56,6 +63,7 @@ class Login(Resource):
 class CheckSession(Resource):
     @jwt_required()
     def get(self):
+        update_completed_payments()
         current_user_id = get_jwt_identity()
         claims = get_jwt()  # Get the claims from the JWT token
         role = claims.get('role')  # Extract the role from the claims
@@ -106,6 +114,7 @@ class Logout(Resource):
 
 class UserResource(Resource):
     def get(self, user_id=None):
+        update_completed_payments()
         if user_id:
             user = User.query.get_or_404(user_id)
             return user.to_dict()
@@ -144,6 +153,7 @@ class UserResource(Resource):
 # Student resource for CRUD operations
 class StudentResource(Resource):
     def get(self, student_id=None):
+        update_completed_payments()
         if student_id:
             update_student_categories()
             student = Student.query.get_or_404(student_id)
@@ -154,6 +164,13 @@ class StudentResource(Resource):
 
     def post(self):
         data = request.get_json()
+        if 'dob' in data:
+            try:
+                # Parse 'dob' to a date object, ensuring it's in the correct format for SQLite
+                data['dob'] = datetime.strptime(data['dob'], '%Y-%m-%d').date()
+            except ValueError:
+                # If 'dob' is not in the correct format, return an error message
+                return jsonify({"error": "Invalid date format. Use YYYY-MM-DD."}), 400
         new_student = Student(**data)
         db.session.add(new_student)
         db.session.commit()
@@ -176,6 +193,7 @@ class StudentResource(Resource):
 # Youth resource for CRUD operations
 class YouthResource(Resource):
     def get(self, youth_id=None):
+        update_completed_payments()
         if youth_id:
             update_youth_categories()
             youth = Youth.query.get_or_404(youth_id)
@@ -192,16 +210,18 @@ class YouthResource(Resource):
                 data['dob'] = datetime.strptime(data['dob'], '%Y-%m-%d').date()
             except ValueError:
                 return {"error": "Invalid date format. Use YYYY-MM-DD."}, 400
-        if 'password' not in data:
-            return {"error": "Password is required."}, 400
+        totp_secret = generate_totp_secret()
+        token= generate_totp_token(totp_secret)
+        email = data['email']
         new_youth = Youth(
-            **data,
-            password_hash=bcrypt.generate_password_hash(data['password']).decode('utf-8')
+            **data
         )
+        send_email(email, "Your Youth Account has been Created", f"Use this as your Logins: {token}")
+        new_youth.password_hash = token
         db.session.add(new_youth)
         db.session.commit()
-        return new_youth.to_dict(), 201
-
+        response_data = new_youth.to_dict()
+        return response_data, 201
     def put(self, youth_id):
         youth = Youth.query.get_or_404(youth_id)
         data = request.get_json()
@@ -224,6 +244,7 @@ class YouthResource(Resource):
 # School resource for CRUD operations
 class SchoolResource(Resource):
     def get(self, school_id=None):
+        update_completed_payments()
         if school_id:
             school = School.query.get_or_404(school_id)
             return school.to_dict()
@@ -233,7 +254,19 @@ class SchoolResource(Resource):
 
     def post(self):
         data = request.get_json()
+        totp_secret = generate_totp_secret()
+        token= generate_totp_token(totp_secret)
+        email = data['email']
+        students_data = data.get('students', [])
+        for student in students_data:
+            if 'dob' in student:
+                # Convert the dob from string to a Python date object
+                student['dob'] = datetime.strptime(student['dob'], '%Y-%m-%d').date()
+        students = [Student(**student) for student in students_data]
+        data['students'] = students
         new_school = School(**data)
+        send_email(email, "Your Youth Account has been Created", f"Use this as your Logins: {token}")
+        new_school.password_hash = token
         db.session.add(new_school)
         db.session.commit()
         return new_school.to_dict(), 201
@@ -374,6 +407,7 @@ class ForgotPassword(Resource):
 
         return {"message": "Password reset email sent."}, 200
     
+    
 class ResetPassword(Resource):
     def post(self):
         data = request.get_json()
@@ -397,6 +431,98 @@ class ResetPassword(Resource):
         db.session.commit()
 
         return {"message": "Password has been reset successfully."}, 200
+    
+
+
+def generate_access_token():
+    """Generate M-PESA API access token"""
+    url = 'https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials'
+    response = requests.get(url, auth=HTTPBasicAuth(CONSUMER_KEY, CONSUMER_SECRET))
+    return response.json().get('access_token')
+
+def initiate_stk_push(payment):
+    """Initiate STK push request"""
+    access_token = generate_access_token()
+    url = 'https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest'
+    headers = {'Authorization': f'Bearer {access_token}'}
+
+    timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+    password = base64.b64encode(f"{BUSINESS_SHORTCODE}{PASSKEY}{timestamp}".encode()).decode('utf-8')
+
+    payload = {
+        "BusinessShortCode": BUSINESS_SHORTCODE,
+        "Password": password,
+        "Timestamp": timestamp,
+        "TransactionType": "CustomerPayBillOnline",
+        "Amount": int(payment.amount),
+        "PartyA": payment.phone_number,
+        "PartyB": BUSINESS_SHORTCODE,
+        "PhoneNumber": payment.phone_number,
+        "CallBackURL": "https://kgga-backend.onrender.com/callback",
+        "AccountReference": payment.transaction_id,
+        "TransactionDesc": f"Payment for {payment.payment_type}"
+    }
+
+    response = requests.post(url, json=payload, headers=headers)
+    return response.json()
+
+@app.route('/initiate-payment', methods=['POST'])
+def start_payment():
+    """Endpoint to initiate payment"""
+    try:
+        data = request.get_json()
+        
+        # Create new payment record
+        payment = Payment(
+            amount=data['amount'],
+            phone_number=data['phone_number'],
+            payment_type=data['payment_type'],
+            youth_id=data.get('youth_id'),
+            school_id=data.get('school_id'),
+            transaction_id=Payment.generate_transaction_id()
+        )
+        
+        db.session.add(payment)
+        db.session.commit()
+        
+        # Initiate M-PESA STK push
+        result = initiate_stk_push(payment)
+        return jsonify(result), 200
+        
+    except Exception as e:
+        db.session.rollback()
+        return jsonify({'error': str(e)}), 400
+
+@app.route('/callback', methods=['POST'])
+def mpesa_callback():
+    """Callback endpoint for M-PESA"""
+    data = request.json
+    stk_callback = data.get("Body", {}).get("stkCallback", {})
+    result_code = stk_callback.get("ResultCode")
+    result_desc = stk_callback.get("ResultDesc")
+
+    if result_code == 0:
+        callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
+        transaction_data = {item['Name']: item.get('Value') for item in callback_metadata}
+        
+        # Update payment record
+        payment = Payment.query.filter_by(transaction_id=transaction_data.get('TransactionID')).first()
+        if payment:
+            payment.status = 'completed'
+            payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
+            payment.process_payment()
+            db.session.commit()
+            
+        return jsonify({
+            "status": "success",
+            "transaction": transaction_data
+        }), 200
+    else:
+        return jsonify({
+            "status": "error",
+            "message": result_desc
+        }), 400
+
 # Routes
 api.add_resource(Login, '/login')
 api.add_resource(Logout, '/logout')
