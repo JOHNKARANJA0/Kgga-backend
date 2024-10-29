@@ -510,7 +510,7 @@ def mpesa_callback():
         transaction_data = {item['Name']: item.get('Value') for item in callback_metadata}
         
         # Update payment record
-        payment = Payment.query.filter_by(merchant_request_id=transaction_data.get('MerchantRequestID')).first()
+        payment = Payment.query.filter_by(merchant_request_id=stk_callback.get('MerchantRequestID')).first()
         if payment:
             payment.status = 'completed'
             payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
