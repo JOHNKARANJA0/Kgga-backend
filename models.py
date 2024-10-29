@@ -340,7 +340,8 @@ class Payment(BaseModel, SerializerMixin):
             raise ValueError("Payment type must be either 'registration' or 'yearly'")
         return value
 
-    def generate_transaction_id(self):
+    @staticmethod
+    def generate_transaction_id():
         return f"TXN-{uuid.uuid4().hex[:8].upper()}"
 
     @validates('status')
@@ -348,7 +349,7 @@ class Payment(BaseModel, SerializerMixin):
         if value not in ['pending', 'completed', 'failed']:
             raise ValueError("Invalid payment status")
         return value
-
+    
     def process_payment(self):
         """Process the payment and update related models"""
         if self.status == 'completed':
