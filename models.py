@@ -319,7 +319,7 @@ class Payment(BaseModel, SerializerMixin):
     status = db.Column(db.String(20), default='pending')
     payment_date = db.Column(db.DateTime, default=datetime.now)
     payment_method = db.Column(db.String(20), default='mpesa')
-    
+    merchant_request_id = db.Column(db.String(50), unique=True)
     transaction_id = db.Column(db.String(50), unique=True)
     phone_number = db.Column(db.String(20))
     mpesa_receipt_number = db.Column(db.String(50), unique=True)

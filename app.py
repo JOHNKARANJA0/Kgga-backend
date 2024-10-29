@@ -487,6 +487,10 @@ def start_payment():
         
         # Initiate M-PESA STK push
         result = initiate_stk_push(payment)
+        merchant_request_id = result.get("MerchantRequestID")
+        if merchant_request_id:
+            payment.merchant_request_id = merchant_request_id
+            db.session.commit()
         return jsonify(result), 200
         
     except Exception as e:
@@ -506,7 +510,7 @@ def mpesa_callback():
         transaction_data = {item['Name']: item.get('Value') for item in callback_metadata}
         
         # Update payment record
-        payment = Payment.query.filter_by(transaction_id=transaction_data.get('TransactionID')).first()
+        payment = Payment.query.filter_by(merchant_request_id=transaction_data.get('MerchantRequestID')).first()
         if payment:
             payment.status = 'completed'
             payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')

@@ -26,7 +26,7 @@ def seed_database():
         ]
 
         # Set hashed passwords
-        passwords = ["password123", "password456", "password789", "password789"]
+        passwords = ["1234", "1234", "1234", "1234"]
         for user, pwd in zip(users, passwords):
             user.password_hash = generate_password_hash(pwd)
 
@@ -44,7 +44,7 @@ def seed_database():
         ]
 
         # Set hashed passwords for youths
-        youth_passwords = ["password789", "password456", "password789", "password789"]
+        youth_passwords = ["1234", "1234", "1234", "1234"]
         for youth, pwd in zip(youths, youth_passwords):
             youth.password_hash = generate_password_hash(pwd)
 
@@ -58,7 +58,7 @@ def seed_database():
             School(school_name="Green Valley High School", email="green@example.com", phone_number="0717370359", county="Nairobi", headteacher_name="Mr. Smith", school_type="Public", guide_leader_id=1, membership_no =246),
             School(school_name="Sunnydale Academy", email="sunnydale@example.com", phone_number="0717370359", county="Nairobi", headteacher_name="Mrs. Johnson", school_type="Private", guide_leader_id=2, membership_no =319),
         ]
-        school_passwords = ["password123", "password456"]
+        school_passwords = ["1234", "1234"]
         for school, pwd in zip(schools, school_passwords):
             school.password_hash = generate_password_hash(pwd)
 
