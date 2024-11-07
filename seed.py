@@ -1,7 +1,6 @@
 from app import app, db
 from models import User, Student, Youth, School, Payment, Event
 from datetime import datetime, timedelta
-from werkzeug.security import generate_password_hash
 import random
 
 def seed_database():
@@ -26,9 +25,9 @@ def seed_database():
         ]
 
         # Set hashed passwords
-        passwords = ["1234", "1234", "1234", "1234"]
-        for user, pwd in zip(users, passwords):
-            user.password_hash = generate_password_hash(pwd)
+        pwd = '123'
+        for user in users:
+            user.password_hash = pwd
 
         # Add users to the session and commit
         db.session.add_all(users)
@@ -44,9 +43,9 @@ def seed_database():
         ]
 
         # Set hashed passwords for youths
-        youth_passwords = ["1234", "1234", "1234", "1234"]
-        for youth, pwd in zip(youths, youth_passwords):
-            youth.password_hash = generate_password_hash(pwd)
+        pwd = '123'
+        for youth in youths:
+            youth.password_hash = pwd
 
         # Add youths to the session and commit
         db.session.add_all(youths)
@@ -58,9 +57,9 @@ def seed_database():
             School(school_name="Green Valley High School", email="green@example.com", phone_number="0717370359", county="Nairobi", headteacher_name="Mr. Smith", school_type="Public", guide_leader_id=1, membership_no =246),
             School(school_name="Sunnydale Academy", email="sunnydale@example.com", phone_number="0717370359", county="Nairobi", headteacher_name="Mrs. Johnson", school_type="Private", guide_leader_id=2, membership_no =319),
         ]
-        school_passwords = ["1234", "1234"]
-        for school, pwd in zip(schools, school_passwords):
-            school.password_hash = generate_password_hash(pwd)
+        pwd = '123'
+        for school in schools:
+            school.password_hash = pwd
 
         # Add schools to the session and commit
         db.session.add_all(schools)
