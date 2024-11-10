@@ -1,5 +1,5 @@
 from app import app, db
-from models import User, Student, Youth, School, Payment, Event
+from models import User, Student, Youth, School, Payment
 from datetime import datetime, timedelta
 import random
 

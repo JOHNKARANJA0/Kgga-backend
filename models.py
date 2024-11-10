@@ -272,12 +272,11 @@ class School(BaseModel, SerializerMixin):
     payment_status = db.Column(db.String(20), default='unpaid')
     registration_fee = db.Column(db.Float, default=1000.0)
     yearly_total_payment = db.Column(db.Float, default=0.0)
-    events = relationship('Event', back_populates='school', cascade='all, delete-orphan')
     guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
     students = relationship('Student', back_populates='school')
     payments = relationship('Payment', back_populates='school', cascade='all, delete-orphan')
 
-    serialize_rules = ('-payments.school', '-guide_leader.payments', '-_password_hash', '-events')
+    serialize_rules = ('-payments.school', '-guide_leader.payments', '-_password_hash')
 
     def calculate_yearly_payment(self):
         return len(self.students) * 200.0
@@ -422,10 +421,7 @@ class Event(BaseModel, SerializerMixin):
     description = db.Column(db.Text)
     category = db.Column(db.String, nullable=True)
     event_date = db.Column(db.Date, nullable=False)
-    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
     organizer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-
-    school = relationship('School', back_populates='events')
     organizer = relationship('User', back_populates='events')
 
     @validates('event_date')
@@ -439,7 +435,7 @@ class Event(BaseModel, SerializerMixin):
         
         return event_date
 
-    serialize_rules = ('-school', '-organizer')
+    serialize_rules = ('-organizer',)
 
 
 class PasswordResetToken(db.Model):
