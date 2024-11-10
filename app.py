@@ -494,7 +494,7 @@ def mpesa_callback():
     elif result_code == 1032:
         payment = Payment.query.filter_by(merchant_request_id = mpesa_merchant_request_id).first()
         if payment:
-            payment.status = 'Failed'
+            payment.status = 'failed'
             payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
             payment.process_payment()
             db.session.commit()
