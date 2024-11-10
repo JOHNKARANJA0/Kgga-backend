@@ -24,10 +24,10 @@ app.config["JWT_SECRET_KEY"] = "your_jwt_secret_key"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=1)
 app.config["SECRET_KEY"] = "your_secret_key"
 # M-PESA credentials
-CONSUMER_KEY = 'xem7gGqhAUa8ueAItC33JsWTnXpRjA0X8feF7yPBjc8ZfDQD'
-CONSUMER_SECRET = 'TPLkVjP8JeCS9rdA0hSuFzGh9rSMkUgBpemOlrdgDFSsiFPLpgGhA3DGHGdJmc4h'
-BUSINESS_SHORTCODE = '174379'
-PASSKEY = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
+CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
+CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
+BUSINESS_SHORTCODE = os.environ.get('BUSINESS_SHORTCODE')
+PASSKEY = os.environ.get('PASSKEY')
 app.json.compact = False
 jwt = JWTManager(app)       
 
