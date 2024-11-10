@@ -473,13 +473,14 @@ def mpesa_callback():
     stk_callback = data.get("Body", {}).get("stkCallback", {})
     result_code = stk_callback.get("ResultCode")
     result_desc = stk_callback.get("ResultDesc")
+    mpesa_merchant_request_id = stk_callback.get('MerchantRequestID')
 
     if result_code == 0:
         callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
         transaction_data = {item['Name']: item.get('Value') for item in callback_metadata}
         
         # Update payment record
-        payment = Payment.query.filter_by(merchant_request_id=stk_callback.get('MerchantRequestID')).first()
+        payment = Payment.query.filter_by(merchant_request_id = mpesa_merchant_request_id).first()
         if payment:
             payment.status = 'completed'
             payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
@@ -490,6 +491,13 @@ def mpesa_callback():
             "status": "success",
             "transaction": transaction_data
         }), 200
+    elif result_code == 1032:
+        payment = Payment.query.filter_by(merchant_request_id = mpesa_merchant_request_id).first()
+        if payment:
+            payment.status = 'Failed'
+            payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
+            payment.process_payment()
+            db.session.commit()
     else:
         return jsonify({
             "status": "error",
