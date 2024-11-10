@@ -499,6 +499,8 @@ def mpesa_callback():
             payment.process_payment()
             db.session.commit()
     else:
+        payment.mpesa_receipt_number = result_desc
+        db.session.commit()
         return jsonify({
             "status": "error",
             "message": result_desc
