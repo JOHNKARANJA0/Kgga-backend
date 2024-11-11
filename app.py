@@ -506,7 +506,6 @@ api.add_resource(YouthResource, '/youths', '/youths/<int:youth_id>')
 api.add_resource(SchoolResource, '/schools', '/schools/<int:school_id>')
 api.add_resource(EventResource, '/events', '/events/<int:event_id>')
 api.add_resource(PaymentResource, '/payments', '/payments/<int:payment_id>')
-api.add_resource(FinancialReportResource, '/financial_reports', '/financial_reports/<int:report_id>')
 api.add_resource(ForgotPassword, '/forgot-password')
 api.add_resource(ResetPassword, '/reset-password')
 
