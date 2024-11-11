@@ -5,13 +5,12 @@ import pyotp
 from requests.auth import HTTPBasicAuth
 import requests
 import base64
-from sqlalchemy import func
 from flask import Flask, request, jsonify, request
 from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required, get_jwt
 from flask_restful import Api, Resource
 from flask_cors import CORS
-from models import db, User, Student, School, Event, Payment,Youth, bcrypt, update_student_categories, update_youth_categories, PasswordResetToken, update_completed_payments
+from models import db, User, Student, School, Event, Payment, FinancialReport, Youth, bcrypt, update_student_categories, update_youth_categories, generate_financial_report, PasswordResetToken, update_completed_payments
 from utils import generate_totp_secret, generate_totp_token, send_email
 
 app = Flask(__name__)
@@ -24,10 +23,10 @@ app.config["JWT_SECRET_KEY"] = "your_jwt_secret_key"
 app.config["JWT_ACCESS_TOKEN_EXPIRES"] = timedelta(days=1)
 app.config["SECRET_KEY"] = "your_secret_key"
 # M-PESA credentials
-CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
-CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
-BUSINESS_SHORTCODE = os.environ.get('BUSINESS_SHORTCODE')
-PASSKEY = os.environ.get('PASSKEY')
+CONSUMER_KEY = 'xem7gGqhAUa8ueAItC33JsWTnXpRjA0X8feF7yPBjc8ZfDQD'
+CONSUMER_SECRET = 'TPLkVjP8JeCS9rdA0hSuFzGh9rSMkUgBpemOlrdgDFSsiFPLpgGhA3DGHGdJmc4h'
+BUSINESS_SHORTCODE = '174379'
+PASSKEY = 'bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919'
 app.json.compact = False
 jwt = JWTManager(app)       
 
@@ -91,7 +90,7 @@ class CheckSession(Resource):
                 return {"error": "School not found"}, 404
 
         return {"error": "Invalid role"}, 400
-    
+
 BLACKLIST = set()
 
 @jwt.token_in_blocklist_loader
@@ -348,6 +347,38 @@ class PaymentResource(Resource):
         db.session.commit()
         return '', 204
 
+# Financial Report resource for CRUD operations
+class FinancialReportResource(Resource):
+    def get(self, report_id=None):
+        if report_id:
+            generate_financial_report()
+            report = FinancialReport.query.get_or_404(report_id)
+            return report.to_dict()
+        else:
+            generate_financial_report()
+            reports = FinancialReport.query.all()
+            return [report.to_dict() for report in reports]
+
+    def post(self):
+        data = request.get_json()
+        new_report = FinancialReport(**data)
+        db.session.add(new_report)
+        db.session.commit()
+        return new_report.to_dict(), 201
+
+    def put(self, report_id):
+        report = FinancialReport.query.get_or_404(report_id)
+        data = request.get_json()
+        for key, value in data.items():
+            setattr(report, key, value)
+        db.session.commit()
+        return report.to_dict()
+
+    def delete(self, report_id):
+        report = FinancialReport.query.get_or_404(report_id)
+        db.session.delete(report)
+        db.session.commit()
+        return '', 204
 class ForgotPassword(Resource):
     def post(self):
         data = request.get_json()
@@ -375,8 +406,8 @@ class ForgotPassword(Resource):
         send_email(user.email, "Password Reset Request", f"Reset your password by clicking this link: {reset_link}")
 
         return {"message": "Password reset email sent."}, 200
-    
-    
+
+
 class ResetPassword(Resource):
     def post(self):
         data = request.get_json()
@@ -400,7 +431,7 @@ class ResetPassword(Resource):
         db.session.commit()
 
         return {"message": "Password has been reset successfully."}, 200
-    
+
 
 
 def generate_access_token():
@@ -440,7 +471,7 @@ def start_payment():
     """Endpoint to initiate payment"""
     try:
         data = request.get_json()
-        
+
         # Create new payment record
         payment = Payment(
             amount=data['amount'],
@@ -450,10 +481,10 @@ def start_payment():
             school_id=data.get('school_id'),
             transaction_id=Payment.generate_transaction_id()
         )
-        
+
         db.session.add(payment)
         db.session.commit()
-        
+
         # Initiate M-PESA STK push
         result = initiate_stk_push(payment)
         merchant_request_id = result.get("MerchantRequestID")
@@ -461,7 +492,7 @@ def start_payment():
             payment.merchant_request_id = merchant_request_id
             db.session.commit()
         return jsonify(result), 200
-        
+
     except Exception as e:
         db.session.rollback()
         return jsonify({'error': str(e)}), 400
@@ -473,188 +504,29 @@ def mpesa_callback():
     stk_callback = data.get("Body", {}).get("stkCallback", {})
     result_code = stk_callback.get("ResultCode")
     result_desc = stk_callback.get("ResultDesc")
-    mpesa_merchant_request_id = stk_callback.get('MerchantRequestID')
 
     if result_code == 0:
         callback_metadata = stk_callback.get("CallbackMetadata", {}).get("Item", [])
         transaction_data = {item['Name']: item.get('Value') for item in callback_metadata}
-        
+
         # Update payment record
-        payment = Payment.query.filter_by(merchant_request_id = mpesa_merchant_request_id).first()
+        payment = Payment.query.filter_by(merchant_request_id=stk_callback.get('MerchantRequestID')).first()
         if payment:
             payment.status = 'completed'
             payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
             payment.process_payment()
             db.session.commit()
-            
+
         return jsonify({
             "status": "success",
             "transaction": transaction_data
         }), 200
-    elif result_code == 1032:
-        payment = Payment.query.filter_by(merchant_request_id = mpesa_merchant_request_id).first()
-        if payment:
-            payment.status = 'failed'
-            payment.mpesa_receipt_number = transaction_data.get('MpesaReceiptNumber')
-            payment.process_payment()
-            db.session.commit()
     else:
-        payment.mpesa_receipt_number = result_desc
-        db.session.commit()
         return jsonify({
             "status": "error",
             "message": result_desc
         }), 400
-#Sending emails
-@app.route('/send-youth-email', methods=['POST'])
-def send_email_to_category():
-    data = request.get_json()
-    category = data.get('category', 'All')
-    subject = data.get('subject', 'Default Subject')
-    message_body = data.get('message', 'This is the default message body.')
 
-    # Determine the recipients based on the category
-    if category == 'All':
-        recipients = Youth.query.all()
-    else:
-        recipients = Youth.query.filter_by(category=category).all()
-
-    # Extract email addresses
-    emails = [youth.email for youth in recipients if youth.email]
-
-    if not emails:
-        return jsonify({"message": "No recipients found for the specified category."}), 404
-
-    # Create and send the email
-    for email in emails:
-        try:
-            send_email(email,subject,message_body)
-            return jsonify({"message": "Emails sent successfully!"}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-
-@app.route('/send-school-email', methods=['POST'])
-def send_email_to_schools_or_leaders():
-    data = request.get_json()
-    recipient_type = data.get('recipient_type', 'all')  # 'school', 'guide_leader', or 'all'
-    subject = data.get('subject', 'Notification')
-    message_body = data.get('message', 'This is a message notification.')
-
-    emails = []
-
-    # Determine recipients based on the recipient_type parameter
-    if recipient_type == 'school':
-        # Collect only school emails
-        schools = School.query.all()
-        emails = [school.email for school in schools]
-
-    elif recipient_type == 'guide_leader':
-        # Collect only guide leader emails
-        guide_leaders = (
-            db.session.query(Youth)
-            .join(School, Youth.id == School.guide_leader_id)
-            .filter(School.is_active == True)  # Adjust filters as needed
-            .all()
-        )
-        emails = [leader.email for leader in guide_leaders]
-
-    elif recipient_type == 'all':
-        # Collect both school and guide leader emails
-        schools = School.query.all()
-        guide_leaders = (
-            db.session.query(Youth)
-            .join(School, Youth.id == School.guide_leader_id)
-            .filter(School.is_active == True)
-            .all()
-        )
-        emails = [school.email for school in schools] + [leader.email for leader in guide_leaders]
-
-    # Check if there are any recipients
-    if not emails:
-        return jsonify({"message": "No recipients found for the specified type."}), 404
-
-    # Try sending the email to all collected recipients
-    for email in emails:
-        try:
-            send_email(email,subject,message_body)
-            return jsonify({"message": f"Emails sent successfully to {recipient_type}!"}), 200
-        except Exception as e:
-            return jsonify({"error": str(e)}), 500
-@app.route('/reports/youths', methods=['GET'])
-def generate_youth_report():
-    # Query for total payment and individual payments for each youth
-    report_data = db.session.query(
-        Youth.id,
-        Youth.name,
-        Youth.category,
-        Youth.registration_fee,
-        Youth.payment_status,
-        Youth.yearly_payment_amount,
-        Youth.yearly_total_payment,
-        Youth.membership_no,
-        func.sum(Payment.amount).label('total_paid'),
-        func.count(Payment.id).label('total_payments')
-    ).join(Payment, Youth.id == Payment.youth_id).group_by(Youth.id).all()
-
-    # Format the report data
-    report = []
-    for youth in report_data:
-        report.append({
-            'youth_id': youth.id,
-            'name': youth.name,
-            'category': youth.category,
-            'Amount_Remaining': youth.yearly_payment_amount,
-            'Amount_needed': youth.yearly_total_payment,
-            'Membership_no': youth.membership_no,
-            'registration_fee': youth.registration_fee,
-            'payment_status': youth.payment_status,
-            'total_paid': youth.total_paid,
-            'total_payments': youth.total_payments
-        })
-
-    return jsonify(report)
-@app.route('/reports/schools', methods=['GET'])
-def generate_school_report():
-    # Query for total payments per school
-    report_data = db.session.query(
-        School.id,
-        School.school_name,
-        School.yearly_payment_amount,
-        School.yearly_total_payment,
-        func.sum(Payment.amount).label('total_paid'),
-        func.count(Student.id).label('student_count'),
-        func.count(Payment.id).label('total_payments'),
-        func.sum(Payment.amount).filter(Payment.payment_type == 'registration').label('regestration_payment'),
-        func.sum(Payment.amount).filter(Payment.payment_type == 'yearly').label('yearly_payment'),
-        func.count(Payment.status).filter(Payment.status == 'completed').label('completed_payments'),
-        func.count(Payment.status).filter(Payment.status == 'pending').label('pending_payments')
-    ).join(Payment, School.id == Payment.school_id)\
-    .outerjoin(Student, School.id == Student.school_id)\
-    .group_by(School.id).all()
-    
-    total_schools = db.session.query(func.count(School.id)).scalar()
-
-    # Format the report data
-    report = []
-    for school in report_data:
-        report.append({
-            'school_id': school.id,
-            'school_name': school.school_name,
-            'student_count': school.student_count,
-            "Amount_needed": school.yearly_total_payment,
-            'Amount_Remaining': school.yearly_payment_amount,
-            'total_paid': school.total_paid,
-            "regestration_payment":  school.regestration_payment,
-            'yearly_payment':school.yearly_payment,
-            'total_payments': school.total_payments,
-            'completed_payments': school.completed_payments,
-            'pending_payments': school.pending_payments
-        })
-
-    return jsonify({
-        'total_schools': total_schools,
-        'school_reports': report
-    })
 # Routes
 api.add_resource(Login, '/login')
 api.add_resource(Logout, '/logout')
@@ -666,6 +538,7 @@ api.add_resource(YouthResource, '/youths', '/youths/<int:youth_id>')
 api.add_resource(SchoolResource, '/schools', '/schools/<int:school_id>')
 api.add_resource(EventResource, '/events', '/events/<int:event_id>')
 api.add_resource(PaymentResource, '/payments', '/payments/<int:payment_id>')
+api.add_resource(FinancialReportResource, '/financial_reports', '/financial_reports/<int:report_id>')
 api.add_resource(ForgotPassword, '/forgot-password')
 api.add_resource(ResetPassword, '/reset-password')
 
