@@ -10,7 +10,7 @@ from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required, get_jwt
 from flask_restful import Api, Resource
 from flask_cors import CORS
-from models import db, User, Student, School, Event, Payment, FinancialReport, Youth, bcrypt, update_student_categories, update_youth_categories, generate_financial_report, PasswordResetToken, update_completed_payments
+from models import db, User, Student, School, Event, Payment, Youth, bcrypt, update_student_categories, update_youth_categories, PasswordResetToken, update_completed_payments
 from utils import generate_totp_secret, generate_totp_token, send_email
 
 app = Flask(__name__)
@@ -347,38 +347,6 @@ class PaymentResource(Resource):
         db.session.commit()
         return '', 204
 
-# Financial Report resource for CRUD operations
-class FinancialReportResource(Resource):
-    def get(self, report_id=None):
-        if report_id:
-            generate_financial_report()
-            report = FinancialReport.query.get_or_404(report_id)
-            return report.to_dict()
-        else:
-            generate_financial_report()
-            reports = FinancialReport.query.all()
-            return [report.to_dict() for report in reports]
-
-    def post(self):
-        data = request.get_json()
-        new_report = FinancialReport(**data)
-        db.session.add(new_report)
-        db.session.commit()
-        return new_report.to_dict(), 201
-
-    def put(self, report_id):
-        report = FinancialReport.query.get_or_404(report_id)
-        data = request.get_json()
-        for key, value in data.items():
-            setattr(report, key, value)
-        db.session.commit()
-        return report.to_dict()
-
-    def delete(self, report_id):
-        report = FinancialReport.query.get_or_404(report_id)
-        db.session.delete(report)
-        db.session.commit()
-        return '', 204
 class ForgotPassword(Resource):
     def post(self):
         data = request.get_json()
