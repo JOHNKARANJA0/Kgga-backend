@@ -420,7 +420,7 @@ class Event(BaseModel, SerializerMixin):
     image = db.Column(db.String, nullable=True)
     description = db.Column(db.Text)
     category = db.Column(db.String, nullable=True)
-    event_date = db.Column(db.Date, nullable=False)
+    event_date = db.Column(db.DateTime, nullable=False)
     organizer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     organizer = relationship('User', back_populates='events')
 
@@ -428,9 +428,9 @@ class Event(BaseModel, SerializerMixin):
     def validate_event_date(self, key, event_date):
         # Parse `event_date` to a date object if it's a string
         if isinstance(event_date, str):
-            event_date = datetime.strptime(event_date, '%Y-%m-%d').date()
+            event_date = datetime.strptime(event_date, '%Y-%m-%dT%H:%M')
         
-        if event_date < datetime.now().date():
+        if event_date < datetime.now():
             raise ValueError("Event date must be in the future.")
         
         return event_date

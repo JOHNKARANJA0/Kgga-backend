@@ -4,6 +4,8 @@ from datetime import timedelta, datetime
 import pyotp
 from requests.auth import HTTPBasicAuth
 import requests
+import cloudinary
+from cloudinary.uploader import upload as cloudinary_upload
 import base64
 from sqlalchemy import func
 from flask import Flask, request, jsonify, request
@@ -28,6 +30,11 @@ CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
 CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
 BUSINESS_SHORTCODE = os.environ.get('BUSINESS_SHORTCODE')
 PASSKEY = os.environ.get('PASSKEY')
+cloudinary.config(
+    cloud_name=os.environ.get('CLOUD_NAME'),
+    api_key=os.environ.get('API_KEY'),
+    api_secret=os.environ.get('API_SECRET')
+)
 app.json.compact = False
 jwt = JWTManager(app)       
 
@@ -285,7 +292,23 @@ class SchoolResource(Resource):
         db.session.delete(school)
         db.session.commit()
         return '', 204
-
+def event_emails(category,subject, body):
+    # Retrieve the appropriate users based on the category
+    if category == 'all':
+        users_to_notify = Youth.query.all()+School.query.all()
+    elif category == 'youth':
+        users_to_notify = Youth.query.all()
+    elif category == 'Young_Leader':
+        users_to_notify = Youth.query.filter_by(category=category).all()
+    elif category == 'Bravo':
+        users_to_notify = Youth.query.filter_by(category=category).all()
+    elif category == 'school':
+        users_to_notify = School.query.all()
+    else:
+        users_to_notify = []
+    
+    for user in users_to_notify:
+        send_email(user.email, subject, body) 
 # Event resource for CRUD operations
 class EventResource(Resource):
     def get(self, event_id=None):
@@ -297,19 +320,99 @@ class EventResource(Resource):
             return [event.to_dict() for event in events]
 
     def post(self):
-        data = request.get_json()
-        new_event = Event(**data)
-        db.session.add(new_event)
-        db.session.commit()
+        data = request.form.to_dict()
+        
+        # Check if the required fields are present
+        if not data.get('category'):    
+            return {"error": "The 'category' field is required."}, 400
+
+        image = request.files.get('image')
+        if image:
+            try:
+                # Attempt to upload the image to Cloudinary
+                upload_result = cloudinary_upload(
+                    image, 
+                    resource_type="image", 
+                    transformation=[
+                        {"width": 200, "height": 200, "crop": "fill", "gravity": "auto"},
+                        {"fetch_format": "auto", "quality": "auto"}
+                    ]
+                )
+                data['image'] = upload_result['secure_url']
+            except Exception as e:
+                # Handle Cloudinary upload error
+                return {"error": "Image upload failed.", "details": str(e)}, 500
+
+        # Validate category field
+        category = data.get('category')
+        if category not in ['all', 'school', 'youth', 'Young_Leader', 'Bravo']:
+            return {"error": "Invalid category type. Choose from 'school', 'youth', 'Young_Leader', or 'Bravo'."}, 400
+
+        try:
+            # Create and save the new event in the database
+            new_event = Event(**data)
+            db.session.add(new_event)
+            db.session.commit()
+            
+            if category in ['all','school', 'youth', 'Young_Leader', 'Bravo']:
+                event_emails(category, subject = f"Created Event Notification: {new_event.title}", body = f"Dear user, \n\nThe {new_event.title} event has been Created. \n This event is for {new_event.category}\nTime is {new_event.event_date}\nFor more info login in to your account.\n\nBest regards,\nEvent Management Team")
+        except Exception as e:
+            # Handle any database errors
+            db.session.rollback()
+            return {"error": "Failed to create event.", "details": str(e)}, 500
+
         return new_event.to_dict(), 201
 
-    def put(self, event_id):
+    def patch(self, event_id):
+        # Attempt to retrieve the event, return 404 if not found
         event = Event.query.get_or_404(event_id)
-        data = request.get_json()
+        data = request.form.to_dict()
+        image = request.files.get('image')
+
+        # Attempt to upload a new image to Cloudinary if provided
+        if image:
+            try:
+                upload_result = cloudinary_upload(
+                    image,
+                    resource_type="image",
+                    transformation=[
+                        {"width": 200, "height": 200, "crop": "fill", "gravity": "auto"},
+                        {"fetch_format": "auto", "quality": "auto"}
+                    ]
+                )
+                data['image'] = upload_result['secure_url']
+            except Exception as e:
+                return {"error": "Image upload failed.", "details": str(e)}, 500
+
+        # Validate and set the category field if provided
+        category = data.get('category')
+        if category:
+            if category not in ['all','school', 'youth', 'Young_Leader', 'Bravo']:
+                return {"error": "Invalid category type. Choose from 'school', 'youth', 'Young_Leader', or 'Bravo'."}, 400
+            event.category = category
+        # Process each key-value pair in data for updating event attributes
         for key, value in data.items():
-            setattr(event, key, value)
-        db.session.commit()
-        return event.to_dict()
+            if key == 'date':
+                try:
+                    # Attempt to parse and format the date field to %Y-%m-%dT%H:%M
+                    parsed_date = datetime.strptime(value, "%Y-%m-%dT%H:%M")
+                    setattr(event, key, parsed_date)
+                except ValueError:
+                    return {"error": f"Invalid date format for '{key}'. Expected format: %Y-%m-%dT%H:%M."}, 400
+            elif key != 'category' and key != 'image':
+                setattr(event, key, value)
+
+        # Attempt to commit changes to the database
+        try:
+            db.session.commit()
+            if event.category in ['all', 'school', 'youth', 'Young_Leader', 'Bravo']:
+                event_emails(event.category, subject = f"Updated Event Notification: {event.title}", body = f"Dear user, \n\nThe {event.title} event has been updated. \n This is an event for {event.category}\nTime is {event.event_date}\nFor more info login in to your account.\n\nBest regards,\nEvent Management Team")
+        except Exception as e:
+            db.session.rollback()
+            return {"error": "Failed to update event.", "details": str(e)}, 500
+
+        return event.to_dict(), 200
+
 
     def delete(self, event_id):
         event = Event.query.get_or_404(event_id)
@@ -371,8 +474,6 @@ class ForgotPassword(Resource):
         )
         db.session.add(password_reset)
         db.session.commit()
-        
-        # Create a clickable reset link with HTML
         reset_link = f"https://voluble-kelpie-0d72d6.netlify.app/reset-password?token={token}&email={user.email}"
         email_body = f"""
         <html>
