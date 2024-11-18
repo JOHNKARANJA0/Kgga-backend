@@ -13,7 +13,7 @@ from flask_migrate import Migrate
 from flask_jwt_extended import JWTManager, create_access_token, get_jwt_identity, jwt_required, get_jwt
 from flask_restful import Api, Resource
 from flask_cors import CORS
-from models import db, User, Student, School, Event, Payment,Youth, bcrypt, update_student_categories, update_youth_categories, PasswordResetToken, update_completed_payments
+from models import db, User, Student, School, Event, Payment,Youth, Attendance,bcrypt, update_student_categories, update_youth_categories, PasswordResetToken, update_completed_payments
 from utils import generate_totp_secret, generate_totp_token, send_email
 
 app = Flask(__name__)
@@ -419,6 +419,68 @@ class EventResource(Resource):
         db.session.delete(event)
         db.session.commit()
         return '', 204
+from flask import request, jsonify
+from flask_restful import Resource
+from datetime import datetime
+
+class MarkAttendance(Resource):
+    @jwt_required()
+    def post(self, event_id):
+        # Get the current user's ID and role from the JWT token
+        current_user_id = get_jwt_identity()
+        claims = get_jwt()  # Get the claims from the JWT token
+        role = claims.get('role')  # Extract the role from the claims
+
+        # Check if the event exists
+        event = Event.query.get(event_id)
+        if not event:
+            return {"message": "Event not found"}, 404
+
+        # Check if the user is a youth or school, and mark the attendance accordingly
+        if role == 'youth':
+            # Get the youth user
+            youth = Youth.query.get(current_user_id)
+            if not youth:
+                return {"message": "Youth not found"}, 404
+
+            # Check if the youth has already marked attendance for the event
+            existing_attendance = Attendance.query.filter_by(event_id=event_id, youth_id=current_user_id).first()
+            if existing_attendance:
+                return {"message": "Attendance already marked for this event"}, 400
+
+            # Create and record attendance for the youth
+            attendance = Attendance(
+                event_id=event_id,
+                youth_id=current_user_id,
+                attendance_date=datetime.now()
+            )
+
+        elif role == 'school':
+            # Get the school user
+            school = School.query.get(current_user_id)
+            if not school:
+                return {"message": "School not found"}, 404
+
+            # Check if the school has already marked attendance for the event
+            existing_attendance = Attendance.query.filter_by(event_id=event_id, school_id=current_user_id).first()
+            if existing_attendance:
+                return {"message": "Attendance already marked for this event"}, 400
+
+            # Create and record attendance for the school
+            attendance = Attendance(
+                event_id=event_id,
+                school_id=current_user_id,
+                attendance_date=datetime.now()
+            )
+
+        else:
+            return {"message": "Invalid role"}, 400
+
+        # Add attendance to the session and commit
+        db.session.add(attendance)
+        db.session.commit()
+
+        return {"message": "Attendance marked successfully", "attendance_id": attendance.id}, 201
 
 # Payment resource for CRUD operations
 class PaymentResource(Resource):
@@ -786,6 +848,7 @@ api.add_resource(StudentResource, '/students', '/students/<int:student_id>')
 api.add_resource(YouthResource, '/youths', '/youths/<int:youth_id>')
 api.add_resource(SchoolResource, '/schools', '/schools/<int:school_id>')
 api.add_resource(EventResource, '/events', '/events/<int:event_id>')
+api.add_resource(MarkAttendance, '/events/<int:event_id>/attend')
 api.add_resource(PaymentResource, '/payments', '/payments/<int:payment_id>')
 api.add_resource(ForgotPassword, '/forgot-password')
 api.add_resource(ResetPassword, '/reset-password')

@@ -137,6 +137,7 @@ class Youth(BaseModel, SerializerMixin):
     payment_status = db.Column(db.String(20), default='unpaid')
     is_active = db.Column(db.Boolean, default=False)
     
+    attendances = relationship('Attendance', back_populates='youth', cascade='all, delete-orphan')
     schools = relationship('School', back_populates='guide_leader')
     payments = relationship('Payment', back_populates='youth', cascade='all, delete-orphan')
 
@@ -248,7 +249,7 @@ class Youth(BaseModel, SerializerMixin):
     serialize_rules = ('-schools', '-payments.youth', '-_password_hash', 
                        'payments.id', 'payments.payment_method', 'payments.amount', 
                        'payments.payment_date', 'payments.status', 
-                       'payments.school_id', 'payments.created_at', 'payments.updated_at', '-age')
+                       'payments.school_id', 'payments.created_at', 'payments.updated_at', '-age', '-attendances')
 
 class School(BaseModel, SerializerMixin):
     __tablename__ = 'schools'
@@ -275,8 +276,9 @@ class School(BaseModel, SerializerMixin):
     guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
     students = relationship('Student', back_populates='school')
     payments = relationship('Payment', back_populates='school', cascade='all, delete-orphan')
-
-    serialize_rules = ('-payments.school', '-guide_leader.payments', '-_password_hash')
+    attendances = relationship('Attendance', back_populates='school', cascade='all, delete-orphan')
+    
+    serialize_rules = ('-payments.school', '-guide_leader.payments', '-_password_hash', '-attendances')
 
     def calculate_yearly_payment(self):
         return len(self.students) * 200.0
@@ -423,7 +425,8 @@ class Event(BaseModel, SerializerMixin):
     event_date = db.Column(db.DateTime, nullable=False)
     organizer_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
     organizer = relationship('User', back_populates='events')
-
+    attendances = relationship('Attendance', back_populates='event', cascade='all, delete-orphan')
+    serialize_rules = ('-attendances',)
     @validates('event_date')
     def validate_event_date(self, key, event_date):
         # Parse `event_date` to a date object if it's a string
@@ -434,8 +437,55 @@ class Event(BaseModel, SerializerMixin):
             raise ValueError("Event date must be in the future.")
         
         return event_date
+    @hybrid_property
+    def attendance_details(self):
+        """
+        Returns attendance details with school or youth-specific information.
+        """
+        details = []
+        for attendance in self.attendances:
+            if attendance.school_id:
+                details.append({
+                    "school_id": attendance.school_id,
+                    "school_name": attendance.school.school_name,
+                    "school_email": attendance.school.email
+                })
+            elif attendance.youth_id:
+                details.append({
+                    "youth_id": attendance.youth_id,
+                    "youth_name": attendance.youth.name
+                })
+        return details
+    def to_dict(self):
+        """
+        Converts the Event instance to a dictionary, including attendance details.
+        """
+        event_dict = super().to_dict()
+        event_dict['attendance_details'] = self.attendance_details
+        return event_dict
 
-    serialize_rules = ('-organizer',)
+class Attendance(BaseModel, SerializerMixin):
+    __tablename__ = 'attendances'
+
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
+    youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
+    school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
+    attendance_date = db.Column(db.DateTime, default=datetime.now)
+
+    # Establish relationships
+    event = relationship('Event', back_populates='attendances')
+    youth = relationship('Youth', back_populates='attendances')
+    school = relationship('School', back_populates='attendances')
+
+    # Ensure that either youth or school is assigned to this attendance, not both
+    @validates('youth_id', 'school_id')
+    def validate_attendance(self, key, value):
+        if key == 'youth_id' and self.school_id:
+            raise ValueError("Cannot assign both youth and school to the same attendance.")
+        if key == 'school_id' and self.youth_id:
+            raise ValueError("Cannot assign both youth and school to the same attendance.")
+        return value
 
 
 class PasswordResetToken(db.Model):
