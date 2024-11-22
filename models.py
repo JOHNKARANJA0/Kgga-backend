@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from sqlalchemy import MetaData, func
 from sqlalchemy.orm import validates, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
@@ -115,6 +115,13 @@ class Student(BaseModel, SerializerMixin):
     serialize_rules = ('-school',)
 
 
+def start_of_creation_year():
+    """
+    Return the start of the current year (January 1st).
+    """
+    now = datetime.now(timezone.utc)
+    return datetime(now.year, 1, 1)
+
 class Youth(BaseModel, SerializerMixin):
     __tablename__ = 'youths'
 
@@ -133,7 +140,7 @@ class Youth(BaseModel, SerializerMixin):
     yearly_payment_amount = db.Column(db.Float, default=500.0)
     yearly_total_payment = db.Column(db.Float, default=500.0)
     last_payment_date = db.Column(db.DateTime)
-    last_updated_at = db.Column(db.DateTime, default=datetime.now)
+    last_updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     payment_status = db.Column(db.String(20), default='unpaid')
     is_active = db.Column(db.Boolean, default=False)
     
@@ -169,19 +176,6 @@ class Youth(BaseModel, SerializerMixin):
         self.registration_fee = 500 - reg_paid_amount
         if reg_paid_amount > self.registration_fee:
             self.is_active = True
-            
-    def update_yearly_payment_amount(self):
-        """Increase yearly payment amount by 500 for a youth if a year has passed since the last update."""
-        current_date = datetime.now()
-        # Calculate the difference in years between the last update and now
-        years_passed = (current_date - self.last_updated_at).days // 365
-        
-        if years_passed >= 1:
-            # Update the yearly_payment_amount based on the years passed
-            self.yearly_payment_amount += 500
-            # Set the last_updated_at to the current date
-            self.last_updated_at = current_date
-            db.session.commit()
 
 
     @validates('phone_number')
@@ -269,7 +263,7 @@ class School(BaseModel, SerializerMixin):
     is_active = db.Column(db.Boolean, default=False)
     yearly_payment_amount = db.Column(db.Float, default=0.0)
     last_payment_date = db.Column(db.DateTime)
-    last_updated_at = db.Column(db.DateTime, default=datetime.now)
+    last_updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     payment_status = db.Column(db.String(20), default='unpaid')
     registration_fee = db.Column(db.Float, default=1000.0)
     yearly_total_payment = db.Column(db.Float, default=0.0)
@@ -297,7 +291,7 @@ class School(BaseModel, SerializerMixin):
             .scalar() or 0.0
 
         self.yearly_payment_amount = yearly_total - paid_amount
-        self.last_payment_date = datetime.now()
+        self.last_payment_date = datetime.now(timezone.utc)
         
         if paid_amount >= yearly_total:
             self.payment_status = 'paid'
@@ -319,7 +313,7 @@ class School(BaseModel, SerializerMixin):
         
     def update_yearly_payment_amount(self):
         """Increase yearly payment amount for a school by yearly total if a year has passed since the last update."""
-        current_date = datetime.now()
+        current_date = datetime.now(timezone.utc)
         # Calculate the difference in years between the last update and now
         years_passed = (current_date - self.last_updated_at).days // 365
         yearly_total = self.calculate_yearly_payment()
@@ -361,7 +355,7 @@ class Payment(BaseModel, SerializerMixin):
     id = db.Column(db.Integer, primary_key=True)
     amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(20), default='pending')
-    payment_date = db.Column(db.DateTime, default=datetime.now)
+    payment_date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
     payment_method = db.Column(db.String(20), default='mpesa')
     merchant_request_id = db.Column(db.String(50), unique=True)
     transaction_id = db.Column(db.String(50), unique=True)
@@ -433,7 +427,7 @@ class Event(BaseModel, SerializerMixin):
         if isinstance(event_date, str):
             event_date = datetime.strptime(event_date, '%Y-%m-%dT%H:%M')
         
-        if event_date < datetime.now():
+        if event_date < datetime.now(timezone.utc):
             raise ValueError("Event date must be in the future.")
         
         return event_date
@@ -471,7 +465,7 @@ class Attendance(BaseModel, SerializerMixin):
     event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
     youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
-    attendance_date = db.Column(db.DateTime, default=datetime.now)
+    attendance_date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
 
     # Establish relationships
     event = relationship('Event', back_populates='attendances')
@@ -495,7 +489,7 @@ class PasswordResetToken(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
 
     def is_expired(self):
-        return datetime.now() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
 
 # Helper function to update student and youth categories
 def update_student_categories():

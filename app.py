@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
-from datetime import timedelta, datetime
-import pyotp
+from datetime import timedelta, datetime, timezone
+from apscheduler.schedulers.background import BackgroundScheduler
 from requests.auth import HTTPBasicAuth
 import requests
 import cloudinary
@@ -42,6 +42,93 @@ migrate = Migrate(app, db)
 db.init_app(app)
 bcrypt.init_app(app)
 api = Api(app)
+def youth_update_yearly_payment(new_amount):
+    """
+    Update the yearly_payment_amount for all users who have completed a full year
+    since their `year_created` date.
+    """
+    current_date = datetime.now(timezone.utc)
+
+    # Fetch all users who need their payments updated
+    youths_to_update = Youth.query.all()
+
+    for youth in youths_to_update:
+        year_diff = current_date.year - youth.last_updated_at.year
+        if year_diff >= 1:
+            youth.is_active = False
+            youth.yearly_payment_amount = new_amount
+            youth.last_updated_at = datetime(current_date.year, 1, 1)
+            send_email(
+            youth.email, 
+            "Payment Update", 
+            f"Hello, {youth.name}, Happy new year. Your payment for this year is {new_amount}, KGGA Team" 
+        )
+
+    db.session.commit() 
+def school_update_yearly_payment():
+    """
+    Update the yearly_payment_amount for all users who have completed a full year
+    since their `year_created` date.
+    """
+    current_date = datetime.now(timezone.utc)
+
+    # Fetch all users who need their payments updated
+    schools_to_update = School.query.all()
+
+    for school in schools_to_update:
+        year_diff = current_date.year - school.last_updated_at.year
+        yearly_payment = school.calculate_yearly_payment()
+        if year_diff >= 1:
+            school.is_active = False
+            school.yearly_payment_amount = yearly_payment
+            school.last_updated_at = datetime(current_date.year, 1, 1)
+            send_email(
+            school.email, 
+            "Payment Update", 
+            f"Hello, {school.school_name}, Happy new year. Your payment for this year is {school.yearly_total_payment}, KGGA Team" 
+        )
+
+    db.session.commit() 
+
+def schedule_yearly_tasks():
+    """
+    Schedule the yearly payment update tasks for youths and schools.
+    """
+    scheduler = BackgroundScheduler(timezone="UTC")
+    
+    # Schedule the youth payment update
+    scheduler.add_job(
+        func=lambda: youth_update_yearly_payment(new_amount=600.0),
+        trigger="cron",
+        month=1,
+        day=1,
+        hour=0,
+        minute=0,
+        id="youth_yearly_payment_update",
+        replace_existing=True
+    )
+    
+    # Schedule the school payment update
+    scheduler.add_job(
+        func=school_update_yearly_payment,
+        trigger="cron",
+        month=1,
+        day=1,
+        hour=0,
+        minute=0,
+        id="school_yearly_payment_update",
+        replace_existing=True
+    )
+    
+    scheduler.start()
+
+@app.before_first_request
+def start_scheduler():
+    """
+    Start the scheduler before the first request.
+    """
+    schedule_yearly_tasks()
+
 
 @app.route("/")
 def index():
@@ -566,7 +653,7 @@ class ForgotPassword(Resource):
         return {"message": "Password reset email sent."}, 200
 
     
-    
+
 class ResetPassword(Resource):
     def post(self):
         data = request.get_json()
