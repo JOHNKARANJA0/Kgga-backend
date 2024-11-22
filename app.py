@@ -98,7 +98,7 @@ def schedule_yearly_tasks():
     
     # Schedule the youth payment update
     scheduler.add_job(
-        func=lambda: youth_update_yearly_payment(new_amount=600.0),
+        func=lambda: youth_update_yearly_payment(new_amount=500.0),
         trigger="cron",
         month=1,
         day=1,

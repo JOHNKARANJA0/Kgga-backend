@@ -311,19 +311,6 @@ class School(BaseModel, SerializerMixin):
         if reg_paid_amount > 1000:
             self.is_active = True
         
-    def update_yearly_payment_amount(self):
-        """Increase yearly payment amount for a school by yearly total if a year has passed since the last update."""
-        current_date = datetime.now(timezone.utc)
-        # Calculate the difference in years between the last update and now
-        years_passed = (current_date - self.last_updated_at).days // 365
-        yearly_total = self.calculate_yearly_payment()
-        
-        if years_passed >= 1:
-            # Update the yearly_payment_amount based on the years passed
-            self.yearly_payment_amount += yearly_total
-            # Set the last_updated_at to the current date
-            self.last_updated_at = current_date
-            db.session.commit()
     
     @validates('email')
     def validate_email(self, key, value):
@@ -393,10 +380,8 @@ class Payment(BaseModel, SerializerMixin):
         if self.status == 'completed':
             if self.school_id:
                 self.school.update_payment_status()
-                self.school.update_yearly_payment_amount()
             elif self.youth_id:
                 self.youth.update_payment_status()
-                self.youth.update_yearly_payment_amount()
 
     @validates('youth_id', 'school_id')
     def validate_payment_relationship(self, key, value):
