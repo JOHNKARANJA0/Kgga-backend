@@ -156,6 +156,7 @@ class Youth(BaseModel, SerializerMixin):
     last_payment_date = db.Column(db.DateTime)
     last_updated_at = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
     payment_status = db.Column(db.String(20), default='unpaid')
+    reg_payment_status = db.Column(db.String(20), default='unpaid')
     is_active = db.Column(db.Boolean, default=False)
     
     attendances = relationship('Attendance', back_populates='youth', cascade='all, delete-orphan')
@@ -180,6 +181,7 @@ class Youth(BaseModel, SerializerMixin):
             self.payment_status = 'partial'
         else:
             self.payment_status = 'unpaid'
+        
             
         reg_paid_amount = db.session.query(func.sum(Payment.amount))\
             .filter(Payment.youth_id == self.id,
@@ -187,11 +189,15 @@ class Youth(BaseModel, SerializerMixin):
                    Payment.status == 'completed')\
             .scalar() or 0.0
         self.registration_fee = max(500 - reg_paid_amount, 0.0)
+        if reg_paid_amount >= 500.0:
+            self.reg_payment_status = 'paid'
+        elif reg_paid_amount > 0:
+            self.reg_payment_status = 'partial'
+        else:
+            self.reg_payment_status = 'unpaid'
         
-        if self.payment_status == 'paid':
+        if self.payment_status == 'paid' and self.reg_payment_status == 'paid':
             self.is_active = True
-        elif reg_paid_amount >= self.registration_fee:
-            self.is_active = True 
         else:
             self.is_active= False
 
@@ -278,6 +284,7 @@ class School(BaseModel, SerializerMixin):
     last_payment_date = db.Column(db.DateTime)
     last_updated_at = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
     payment_status = db.Column(db.String(20), default='unpaid')
+    reg_payment_status = db.Column(db.String(20), default='unpaid')
     registration_fee = db.Column(db.Float, default=1000.0)
     yearly_total_payment = db.Column(db.Float, default=0.0)
     guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
@@ -320,9 +327,14 @@ class School(BaseModel, SerializerMixin):
                    Payment.status == 'completed')\
             .scalar() or 0.0
         self.registration_fee = max(1000 - reg_paid_amount, 0)
-        if self.payment_status == 'paid':
-            self.is_active = True
-        elif reg_paid_amount > 1000:
+        if reg_paid_amount >= 1000:
+            self.reg_payment_status = 'paid'
+        elif reg_paid_amount > 0:
+            self.reg_payment_status = 'partial'
+        else:
+            self.reg_payment_status = 'unpaid'
+        
+        if self.payment_status == 'paid' and self.reg_payment_status == 'paid':
             self.is_active = True
         else:
             self.is_active = False
