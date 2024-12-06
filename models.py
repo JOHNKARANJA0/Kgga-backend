@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 
 from flask_sqlalchemy import SQLAlchemy
-from datetime import datetime, date, timedelta, timezone
+from datetime import datetime, date
 from sqlalchemy import MetaData, func
+from pytz import timezone
 from sqlalchemy.orm import validates, relationship
 from sqlalchemy.ext.hybrid import hybrid_property
 from sqlalchemy_serializer import SerializerMixin
 from flask_bcrypt import Bcrypt
+from sqlalchemy.ext.declarative import declared_attr
 import uuid
 
 bcrypt = Bcrypt()
@@ -18,11 +20,23 @@ metadata = MetaData(
 )
 
 db = SQLAlchemy(metadata=metadata)
-
+nairobi_tz = timezone('Africa/Nairobi')
 class BaseModel(db.Model):
     __abstract__ = True
-    created_at = db.Column(db.DateTime, default=db.func.now())
-    updated_at = db.Column(db.DateTime, default=db.func.now(), onupdate=db.func.now())
+    @declared_attr
+    def created_at(cls):
+        return db.Column(
+            db.DateTime,
+            default=lambda: datetime.now(nairobi_tz)
+        )
+
+    @declared_attr
+    def updated_at(cls):
+        return db.Column(
+            db.DateTime,
+            default=lambda: datetime.now(nairobi_tz),
+            onupdate=lambda: datetime.now(nairobi_tz)
+        )
 
 class User(BaseModel, SerializerMixin):
     __tablename__ = 'users'
@@ -119,7 +133,7 @@ def start_of_creation_year():
     """
     Return the start of the current year (January 1st).
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(nairobi_tz)
     return datetime(now.year, 1, 1)
 
 class Youth(BaseModel, SerializerMixin):
@@ -140,7 +154,7 @@ class Youth(BaseModel, SerializerMixin):
     yearly_payment_amount = db.Column(db.Float, default=500.0)
     yearly_total_payment = db.Column(db.Float, default=500.0)
     last_payment_date = db.Column(db.DateTime)
-    last_updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    last_updated_at = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
     payment_status = db.Column(db.String(20), default='unpaid')
     is_active = db.Column(db.Boolean, default=False)
     
@@ -149,7 +163,7 @@ class Youth(BaseModel, SerializerMixin):
     payments = relationship('Payment', back_populates='youth', cascade='all, delete-orphan')
 
     def update_payment_status(self):
-        current_year = datetime.now().year
+        current_year = datetime.now(nairobi_tz).year
         
         paid_amount = db.session.query(func.sum(Payment.amount))\
             .filter(Payment.youth_id == self.id,
@@ -157,8 +171,8 @@ class Youth(BaseModel, SerializerMixin):
                    Payment.status == 'completed',
                    Payment.payment_year == current_year)\
             .scalar() or 0.0
-        self.yearly_payment_amount = 500 - paid_amount
-        self.last_payment_date = datetime.now()
+        self.yearly_payment_amount = max(500 - paid_amount, 0.0)
+        self.last_payment_date = datetime.now(nairobi_tz)
         
         if paid_amount >= 500.0:
             self.payment_status = 'paid'
@@ -170,12 +184,16 @@ class Youth(BaseModel, SerializerMixin):
         reg_paid_amount = db.session.query(func.sum(Payment.amount))\
             .filter(Payment.youth_id == self.id,
                    Payment.payment_type == 'registration',
-                   Payment.status == 'completed',
-                   Payment.payment_year == current_year)\
+                   Payment.status == 'completed')\
             .scalar() or 0.0
-        self.registration_fee = 500 - reg_paid_amount
-        if reg_paid_amount > self.registration_fee:
+        self.registration_fee = max(500 - reg_paid_amount, 0.0)
+        
+        if self.payment_status == 'paid':
             self.is_active = True
+        elif reg_paid_amount >= self.registration_fee:
+            self.is_active = True 
+        else:
+            self.is_active= False
 
 
     @validates('phone_number')
@@ -194,11 +212,6 @@ class Youth(BaseModel, SerializerMixin):
         # Ensure dob is a date instance
         if not isinstance(dob_value, date):
             raise TypeError(f"Expected a date instance for dob, got {type(dob_value)}.")
-        
-        # # Validate age range
-        # age = self.age
-        # if age < 18 or age > 25:  # Define the age range for youths
-        #     raise ValueError("Youth age must be between 18 and 25 years")
         
         return dob_value
     @property
@@ -263,7 +276,7 @@ class School(BaseModel, SerializerMixin):
     is_active = db.Column(db.Boolean, default=False)
     yearly_payment_amount = db.Column(db.Float, default=0.0)
     last_payment_date = db.Column(db.DateTime)
-    last_updated_at = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    last_updated_at = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
     payment_status = db.Column(db.String(20), default='unpaid')
     registration_fee = db.Column(db.Float, default=1000.0)
     yearly_total_payment = db.Column(db.Float, default=0.0)
@@ -281,7 +294,7 @@ class School(BaseModel, SerializerMixin):
         yearly_total = self.calculate_yearly_payment()
         self.yearly_total_payment = self.calculate_yearly_payment()
         self.yearly_payment_amount = self.calculate_yearly_payment()
-        current_year = datetime.now().year
+        current_year = datetime.now(nairobi_tz).year
         
         paid_amount = db.session.query(func.sum(Payment.amount))\
             .filter(Payment.school_id == self.id,
@@ -290,8 +303,8 @@ class School(BaseModel, SerializerMixin):
                    Payment.payment_year == current_year)\
             .scalar() or 0.0
 
-        self.yearly_payment_amount = yearly_total - paid_amount
-        self.last_payment_date = datetime.now(timezone.utc)
+        self.yearly_payment_amount = max(yearly_total - paid_amount, 0.0)
+        self.last_payment_date = datetime.now(nairobi_tz)
         
         if paid_amount >= yearly_total:
             self.payment_status = 'paid'
@@ -304,12 +317,15 @@ class School(BaseModel, SerializerMixin):
         reg_paid_amount = db.session.query(func.sum(Payment.amount))\
             .filter(Payment.school_id == self.id,
                    Payment.payment_type == 'registration',
-                   Payment.status == 'completed',
-                   Payment.payment_year == current_year)\
+                   Payment.status == 'completed')\
             .scalar() or 0.0
-        self.registration_fee = 1000 - reg_paid_amount
-        if reg_paid_amount > 1000:
+        self.registration_fee = max(1000 - reg_paid_amount, 0)
+        if self.payment_status == 'paid':
             self.is_active = True
+        elif reg_paid_amount > 1000:
+            self.is_active = True
+        else:
+            self.is_active = False
         
     
     @validates('email')
@@ -342,7 +358,7 @@ class Payment(BaseModel, SerializerMixin):
     id = db.Column(db.Integer, primary_key=True)
     amount = db.Column(db.Float, nullable=False)
     status = db.Column(db.String(20), default='pending')
-    payment_date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    payment_date = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
     payment_method = db.Column(db.String(20), default='mpesa')
     merchant_request_id = db.Column(db.String(50), unique=True)
     transaction_id = db.Column(db.String(50), unique=True)
@@ -350,7 +366,7 @@ class Payment(BaseModel, SerializerMixin):
     mpesa_receipt_number = db.Column(db.String(50), unique=True)
     
     payment_type = db.Column(db.String(20), nullable=False)
-    payment_year = db.Column(db.Integer, default=lambda: datetime.now().year)
+    payment_year = db.Column(db.Integer, default=lambda: datetime.now(nairobi_tz).year)
     
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
     youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
@@ -412,7 +428,7 @@ class Event(BaseModel, SerializerMixin):
         if isinstance(event_date, str):
             event_date = datetime.strptime(event_date, '%Y-%m-%dT%H:%M')
         
-        if event_date < datetime.now(timezone.utc):
+        if event_date < datetime.now(nairobi_tz):
             raise ValueError("Event date must be in the future.")
         
         return event_date
@@ -450,7 +466,7 @@ class Attendance(BaseModel, SerializerMixin):
     event_id = db.Column(db.Integer, db.ForeignKey('events.id'), nullable=False)
     youth_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
     school_id = db.Column(db.Integer, db.ForeignKey('schools.id'), nullable=True)
-    attendance_date = db.Column(db.DateTime, default=datetime.now(timezone.utc))
+    attendance_date = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
 
     # Establish relationships
     event = relationship('Event', back_populates='attendances')
@@ -474,7 +490,7 @@ class PasswordResetToken(db.Model):
     expires_at = db.Column(db.DateTime, nullable=False)
 
     def is_expired(self):
-        return datetime.now(timezone.utc) > self.expires_at
+        return datetime.now(nairobi_tz) > self.expires_at
 
 # Helper function to update student and youth categories
 def update_student_categories():

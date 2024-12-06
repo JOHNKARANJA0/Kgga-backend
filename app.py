@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
-from datetime import timedelta, datetime, timezone
+from pytz import timezone
+from datetime import timedelta, datetime
 from apscheduler.schedulers.background import BackgroundScheduler
 from requests.auth import HTTPBasicAuth
 import requests
@@ -37,7 +38,7 @@ cloudinary.config(
 )
 app.json.compact = False
 jwt = JWTManager(app)       
-
+nairobi_tz = timezone('Africa/Nairobi')
 migrate = Migrate(app, db)
 db.init_app(app)
 bcrypt.init_app(app)
@@ -47,7 +48,7 @@ def youth_update_yearly_payment(new_amount):
     Update the yearly_payment_amount for all users who have completed a full year
     since their `year_created` date.
     """
-    current_date = datetime.now(timezone.utc)
+    current_date = datetime.now(nairobi_tz)
 
     # Fetch all users who need their payments updated
     youths_to_update = Youth.query.all()
@@ -70,7 +71,7 @@ def school_update_yearly_payment():
     Update the yearly_payment_amount for all users who have completed a full year
     since their `year_created` date.
     """
-    current_date = datetime.now(timezone.utc)
+    current_date = datetime.now(nairobi_tz)
 
     # Fetch all users who need their payments updated
     schools_to_update = School.query.all()
@@ -94,7 +95,7 @@ def schedule_yearly_tasks():
     """
     Schedule the yearly payment update tasks for youths and schools.
     """
-    scheduler = BackgroundScheduler(timezone="UTC")
+    scheduler = BackgroundScheduler(timezone="Africa/Nairobi")
     
     # Schedule the youth payment update
     scheduler.add_job(
@@ -216,6 +217,7 @@ class UserResource(Resource):
         else:
             users = User.query.all()
             return [user.to_dict() for user in users]
+        
 
     def post(self):
         data = request.get_json()
@@ -791,17 +793,21 @@ def send_email_to_category():
 
     # Extract email addresses
     emails = [youth.email for youth in recipients if youth.email]
+    print(emails)
 
+    # Create and send the email
     if not emails:
         return jsonify({"message": "No recipients found for the specified category."}), 404
 
     # Create and send the email
     for email in emails:
+        print(email)
         try:
-            send_email(email,subject,message_body)
-            return jsonify({"message": "Emails sent successfully!"}), 200
+            send_email(email, subject, message_body)
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+
+    return jsonify({"message": "Emails sent successfully!"}), 200
 
 @app.route('/send-school-email', methods=['POST'])
 def send_email_to_schools_or_leaders():
@@ -850,6 +856,7 @@ def send_email_to_schools_or_leaders():
             return jsonify({"message": f"Emails sent successfully to {recipient_type}!"}), 200
         except Exception as e:
             return jsonify({"error": str(e)}), 500
+    return jsonify({"message": "Emails sent successfully!"}), 200
 @app.route('/reports/youths', methods=['GET'])
 def generate_youth_report():
     # Query for total payment and individual payments for each youth

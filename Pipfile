@@ -29,6 +29,7 @@ cloudinary = "*"
 pytest-flask = "*"
 sqlalchemy = "*"
 apscheduler = "*"
+pytz = "*"
 
 [requires]
 python_full_version = "3.8.13"

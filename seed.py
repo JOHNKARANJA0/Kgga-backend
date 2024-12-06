@@ -1,6 +1,7 @@
 from app import app, db
 from models import User, Student, Youth, School, Payment
 from datetime import datetime, timedelta
+from pytz import timezone
 import random
 
 def seed_database():
@@ -81,7 +82,7 @@ def seed_database():
 
         # Create Payments with randomized payment dates
         payments = []
-        base_date = datetime.now()
+        base_date = datetime.now(timezone('Africa/Nairobi'))
 
         for _ in range(24):
             # Decide whether to associate with youth or school, ensuring one is always None
