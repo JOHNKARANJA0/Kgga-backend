@@ -158,7 +158,8 @@ class Youth(BaseModel, SerializerMixin):
     payment_status = db.Column(db.String(20), default='unpaid')
     reg_payment_status = db.Column(db.String(20), default='unpaid')
     is_active = db.Column(db.Boolean, default=False)
-    
+    commissioner = db.Column(db.String(20), nullable=True)
+    commitee = db.Column(db.String(20), nullable=True)
     attendances = relationship('Attendance', back_populates='youth', cascade='all, delete-orphan')
     schools = relationship('School', back_populates='guide_leader')
     payments = relationship('Payment', back_populates='youth', cascade='all, delete-orphan')

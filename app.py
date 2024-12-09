@@ -368,7 +368,7 @@ class SchoolResource(Resource):
         db.session.commit()
         return new_school.to_dict(), 201
 
-    def put(self, school_id):
+    def patch(self, school_id):
         school = School.query.get_or_404(school_id)
         data = request.get_json()
         for key, value in data.items():
@@ -508,10 +508,6 @@ class EventResource(Resource):
         db.session.delete(event)
         db.session.commit()
         return '', 204
-from flask import request, jsonify
-from flask_restful import Resource
-from datetime import datetime
-
 class MarkAttendance(Resource):
     @jwt_required()
     def post(self, event_id):
