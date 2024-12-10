@@ -1,8 +1,8 @@
 """Initial Migration
 
-Revision ID: 628287352454
+Revision ID: f11eff6a696c
 Revises: 
-Create Date: 2024-10-29 20:12:13.914427
+Create Date: 2024-12-10 21:47:57.939411
 
 """
 from alembic import op
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '628287352454'
+revision = 'f11eff6a696c'
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -56,13 +56,31 @@ def upgrade():
     sa.Column('token', sa.String(length=32), nullable=True),
     sa.Column('registration_fee', sa.Float(), nullable=True),
     sa.Column('yearly_payment_amount', sa.Float(), nullable=True),
+    sa.Column('yearly_total_payment', sa.Float(), nullable=True),
     sa.Column('last_payment_date', sa.DateTime(), nullable=True),
+    sa.Column('last_updated_at', sa.DateTime(), nullable=True),
     sa.Column('payment_status', sa.String(length=20), nullable=True),
+    sa.Column('reg_payment_status', sa.String(length=20), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=True),
+    sa.Column('commissioner', sa.String(length=20), nullable=True),
+    sa.Column('commitee', sa.String(length=20), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email')
+    )
+    op.create_table('events',
+    sa.Column('id', sa.Integer(), nullable=False),
+    sa.Column('title', sa.String(length=100), nullable=False),
+    sa.Column('image', sa.String(), nullable=True),
+    sa.Column('description', sa.Text(), nullable=True),
+    sa.Column('category', sa.String(), nullable=True),
+    sa.Column('event_date', sa.DateTime(), nullable=False),
+    sa.Column('organizer_id', sa.Integer(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), nullable=True),
+    sa.Column('updated_at', sa.DateTime(), nullable=True),
+    sa.ForeignKeyConstraint(['organizer_id'], ['users.id'], name=op.f('fk_events_organizer_id_users')),
+    sa.PrimaryKeyConstraint('id')
     )
     op.create_table('schools',
     sa.Column('id', sa.Integer(), nullable=False),
@@ -80,37 +98,28 @@ def upgrade():
     sa.Column('is_active', sa.Boolean(), nullable=True),
     sa.Column('yearly_payment_amount', sa.Float(), nullable=True),
     sa.Column('last_payment_date', sa.DateTime(), nullable=True),
+    sa.Column('last_updated_at', sa.DateTime(), nullable=True),
     sa.Column('payment_status', sa.String(length=20), nullable=True),
+    sa.Column('reg_payment_status', sa.String(length=20), nullable=True),
     sa.Column('registration_fee', sa.Float(), nullable=True),
+    sa.Column('yearly_total_payment', sa.Float(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
     sa.ForeignKeyConstraint(['guide_leader_id'], ['youths.id'], name=op.f('fk_schools_guide_leader_id_youths')),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('email')
     )
-    op.create_table('events',
+    op.create_table('attendances',
     sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('title', sa.String(length=100), nullable=False),
-    sa.Column('description', sa.Text(), nullable=True),
-    sa.Column('event_date', sa.Date(), nullable=False),
-    sa.Column('school_id', sa.Integer(), nullable=False),
-    sa.Column('organizer_id', sa.Integer(), nullable=False),
+    sa.Column('event_id', sa.Integer(), nullable=False),
+    sa.Column('youth_id', sa.Integer(), nullable=True),
+    sa.Column('school_id', sa.Integer(), nullable=True),
+    sa.Column('attendance_date', sa.DateTime(), nullable=True),
     sa.Column('created_at', sa.DateTime(), nullable=True),
     sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.ForeignKeyConstraint(['organizer_id'], ['users.id'], name=op.f('fk_events_organizer_id_users')),
-    sa.ForeignKeyConstraint(['school_id'], ['schools.id'], name=op.f('fk_events_school_id_schools')),
-    sa.PrimaryKeyConstraint('id')
-    )
-    op.create_table('financial_reports',
-    sa.Column('id', sa.Integer(), nullable=False),
-    sa.Column('report_date', sa.Date(), nullable=True),
-    sa.Column('total_income', sa.Float(), nullable=False),
-    sa.Column('total_expenditure', sa.Float(), nullable=False),
-    sa.Column('net_profit', sa.Float(), nullable=False),
-    sa.Column('school_id', sa.Integer(), nullable=False),
-    sa.Column('created_at', sa.DateTime(), nullable=True),
-    sa.Column('updated_at', sa.DateTime(), nullable=True),
-    sa.ForeignKeyConstraint(['school_id'], ['schools.id'], name=op.f('fk_financial_reports_school_id_schools')),
+    sa.ForeignKeyConstraint(['event_id'], ['events.id'], name=op.f('fk_attendances_event_id_events')),
+    sa.ForeignKeyConstraint(['school_id'], ['schools.id'], name=op.f('fk_attendances_school_id_schools')),
+    sa.ForeignKeyConstraint(['youth_id'], ['youths.id'], name=op.f('fk_attendances_youth_id_youths')),
     sa.PrimaryKeyConstraint('id')
     )
     op.create_table('payments',
@@ -119,6 +128,7 @@ def upgrade():
     sa.Column('status', sa.String(length=20), nullable=True),
     sa.Column('payment_date', sa.DateTime(), nullable=True),
     sa.Column('payment_method', sa.String(length=20), nullable=True),
+    sa.Column('merchant_request_id', sa.String(length=50), nullable=True),
     sa.Column('transaction_id', sa.String(length=50), nullable=True),
     sa.Column('phone_number', sa.String(length=20), nullable=True),
     sa.Column('mpesa_receipt_number', sa.String(length=50), nullable=True),
@@ -131,6 +141,7 @@ def upgrade():
     sa.ForeignKeyConstraint(['school_id'], ['schools.id'], name=op.f('fk_payments_school_id_schools')),
     sa.ForeignKeyConstraint(['youth_id'], ['youths.id'], name=op.f('fk_payments_youth_id_youths')),
     sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('merchant_request_id'),
     sa.UniqueConstraint('mpesa_receipt_number'),
     sa.UniqueConstraint('transaction_id')
     )
@@ -155,9 +166,9 @@ def downgrade():
     # ### commands auto generated by Alembic - please adjust! ###
     op.drop_table('students')
     op.drop_table('payments')
-    op.drop_table('financial_reports')
-    op.drop_table('events')
+    op.drop_table('attendances')
     op.drop_table('schools')
+    op.drop_table('events')
     op.drop_table('youths')
     op.drop_table('users')
     op.drop_table('password_reset_token')

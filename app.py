@@ -233,7 +233,7 @@ class UserResource(Resource):
         db.session.commit()
         return new_user.to_dict(), 201
 
-    def put(self, user_id):
+    def patch(self, user_id):
         user = User.query.get_or_404(user_id)
         data = request.get_json()
         for key, value in data.items():
