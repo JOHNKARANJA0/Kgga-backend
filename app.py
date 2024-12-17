@@ -32,8 +32,8 @@ CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
 CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
 BUSINESS_SHORTCODE = os.environ.get('BUSINESS_SHORTCODE')
 PASSKEY = os.environ.get('PASSKEY')
-AFRICATALKING_USERNAME = "sandbox"  # Replace with your Africa's Talking username
-AFRICATALKING_API_KEY = "atsk_b0596fd75af3c97f098360a0f7733c5688377db71efd48725f624c730f910247761c7f3e"
+AFRICATALKING_USERNAME = os.environ.get('AFRICATALKING_USERNAME')
+AFRICATALKING_API_KEY = os.environ.get('AFRICATALKING_API_KEY')
 # Initialize Africa's Talking SDK
 africastalking.initialize(AFRICATALKING_USERNAME, AFRICATALKING_API_KEY)
 sms = africastalking.SMS
