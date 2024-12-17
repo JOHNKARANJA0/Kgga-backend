@@ -16,6 +16,7 @@ from flask_restful import Api, Resource
 from flask_cors import CORS
 from models import db, User, Student, School, Event, Payment,Youth, Attendance,bcrypt, update_student_categories, update_youth_categories, PasswordResetToken, update_completed_payments
 from utils import generate_totp_secret, generate_totp_token, send_email
+import africastalking
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {
@@ -31,6 +32,11 @@ CONSUMER_KEY = os.environ.get('CONSUMER_KEY')
 CONSUMER_SECRET = os.environ.get('CONSUMER_SECRET')
 BUSINESS_SHORTCODE = os.environ.get('BUSINESS_SHORTCODE')
 PASSKEY = os.environ.get('PASSKEY')
+AFRICATALKING_USERNAME = "sandbox"  # Replace with your Africa's Talking username
+AFRICATALKING_API_KEY = "atsk_b0596fd75af3c97f098360a0f7733c5688377db71efd48725f624c730f910247761c7f3e"
+# Initialize Africa's Talking SDK
+africastalking.initialize(AFRICATALKING_USERNAME, AFRICATALKING_API_KEY)
+sms = africastalking.SMS
 cloudinary.config(
     cloud_name=os.environ.get('CLOUD_NAME'),
     api_key=os.environ.get('API_KEY'),
@@ -773,6 +779,113 @@ def mpesa_callback():
             "status": "error",
             "message": result_desc
         }), 400
+
+#Sending SMS
+@app.route('/youth_send_sms', methods=['POST'])
+def youth_send_sms():
+    try:
+        data = request.get_json()
+        category = data.get('category', 'All')
+        message = data.get('message', 'This is the default message body.')
+        # Function to format phone numbers
+        def format_phone_number(phone):
+            """
+            Convert '07xxxxxxxx' to '+2547xxxxxxxx' format.
+            """
+            if phone.startswith('07'):  # Check if number starts with '07'
+                return '+254' + phone[1:]  # Replace '0' with '+254'
+            elif phone.startswith('+254'):  # Already formatted
+                return phone
+            else:
+                raise ValueError(f"Invalid phone number format: {phone}")
+        # Determine the recipients based on the category
+        if category == 'All':
+            recipients = Youth.query.all()
+        else:
+            recipients = Youth.query.filter_by(category=category).all()
+
+        # Extract email addresses
+        phone_numbers = [format_phone_number(youth.phone_number) for youth in recipients if youth.phone_number]
+        
+        # Validate input
+        if not recipients or not message:
+            return jsonify({"error": "Both 'recipients' and 'message' are required"}), 400
+        # Send SMS
+        response = sms.send(message, phone_numbers)
+        
+        return jsonify({
+            "status": "success",
+            "response": response
+        }), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+@app.route('/school_send_sms', methods=['POST'])
+def school_send_sms():
+    try:
+        # Get data from request
+        data = request.get_json()
+        recipient_type = data.get('recipient_type', 'all')  # 'school', 'guide_leader', or 'all'
+        message = data.get('message', 'This is a message notification.')
+
+        phone_numbers = []
+
+        # Function to format phone numbers
+        def format_phone_number(phone):
+            """
+            Convert '07xxxxxxxx' to '+2547xxxxxxxx' format.
+            """
+            if phone.startswith('07'):  # Check if number starts with '07'
+                return '+254' + phone[1:]  # Replace '0' with '+254'
+            elif phone.startswith('+254'):  # Already formatted
+                return phone
+            else:
+                raise ValueError(f"Invalid phone number format: {phone}")
+
+        # Determine recipients based on the recipient_type parameter
+        if recipient_type == 'school':
+            # Collect only school phone numbers
+            schools = School.query.all()
+            phone_numbers = [format_phone_number(school.phone_number) for school in schools]
+
+        elif recipient_type == 'guide_leader':
+            # Collect only guide leader phone numbers
+            guide_leaders = (
+                db.session.query(Youth)
+                .join(School, Youth.id == School.guide_leader_id)
+                .filter(School.is_active == True)  # Adjust filters as needed
+                .all()
+            )
+            phone_numbers = [format_phone_number(leader.phone_number) for leader in guide_leaders]
+
+        elif recipient_type == 'all':
+            # Collect both school and guide leader phone numbers
+            schools = School.query.all()
+            guide_leaders = (
+                db.session.query(Youth)
+                .join(School, Youth.id == School.guide_leader_id)
+                .filter(School.is_active == True)
+                .all()
+            )
+            phone_numbers = (
+                [format_phone_number(school.phone_number) for school in schools] +
+                [format_phone_number(leader.phone_number) for leader in guide_leaders]
+            )
+        
+        # Validate input
+        if not phone_numbers or not message:
+            return jsonify({"error": "Both 'recipients' and 'message' are required"}), 400
+        # Send SMS
+        response = sms.send(message, phone_numbers)
+        
+        return jsonify({
+            "status": "success",
+            "response": response
+        }), 200
+    except ValueError as ve:
+        return jsonify({"error": str(ve)}), 400
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 #Sending emails
 @app.route('/send-youth-email', methods=['POST'])
 def send_email_to_category():
@@ -789,7 +902,6 @@ def send_email_to_category():
 
     # Extract email addresses
     emails = [youth.email for youth in recipients if youth.email]
-    print(emails)
 
     # Create and send the email
     if not emails:
@@ -797,7 +909,6 @@ def send_email_to_category():
 
     # Create and send the email
     for email in emails:
-        print(email)
         try:
             send_email(email, subject, message_body)
         except Exception as e:

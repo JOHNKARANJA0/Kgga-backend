@@ -30,6 +30,7 @@ pytest-flask = "*"
 sqlalchemy = "*"
 apscheduler = "*"
 pytz = "*"
+africastalking = "*"
 
 [requires]
 python_full_version = "3.8.13"
