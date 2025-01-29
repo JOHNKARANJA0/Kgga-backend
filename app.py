@@ -216,17 +216,21 @@ class Logout(Resource):
 
 class UserResource(Resource):
     def get(self, user_id=None):
-        update_completed_payments()
         if user_id:
             user = User.query.get_or_404(user_id)
+            update_completed_payments()
             return user.to_dict()
         else:
             users = User.query.all()
+            update_completed_payments()
             return [user.to_dict() for user in users]
-        
+    
 
     def post(self):
         data = request.get_json()
+        totp_secret = generate_totp_secret()
+        user_token= generate_totp_token(totp_secret)
+        email = data['email']
         new_user = User(
             name=data['name'],
             email=data['email'],
@@ -235,6 +239,8 @@ class UserResource(Resource):
             password_hash=data['password'],
             token=generate_totp_secret()
         )
+        send_email(email, "Your Admin Account has been Created", f"Use this as your Logins: {user_token}.\nTo set your password. Forget your password and follow the process")
+        new_user.password_hash = user_token
         db.session.add(new_user)
         db.session.commit()
         return new_user.to_dict(), 201
@@ -252,19 +258,16 @@ class UserResource(Resource):
         db.session.delete(user)
         db.session.commit()
         return '', 204
-
 # Student resource for CRUD operations
 class StudentResource(Resource):
     def get(self, student_id=None):
-        update_completed_payments()
         if student_id:
-            update_student_categories()
             student = Student.query.get_or_404(student_id)
+            update_completed_payments()
             return student.to_dict()
         else:
             students = Student.query.all()
             return [student.to_dict() for student in students]
-
     def post(self):
         data = request.get_json()
         if 'dob' in data:
@@ -292,20 +295,20 @@ class StudentResource(Resource):
         db.session.delete(student)
         db.session.commit()
         return '', 204
-
 # Youth resource for CRUD operations
 class YouthResource(Resource):
     def get(self, youth_id=None):
-        update_completed_payments()
         if youth_id:
-            update_youth_categories()
             youth = Youth.query.get_or_404(youth_id)
+            youth.update_youth_amounts()
+            update_completed_payments()
             return youth.to_dict()
         else:
-            update_youth_categories()
             youths = Youth.query.all()
+            for youth in youths:
+                youth.update_youth_amounts()
+            update_completed_payments()
             return [youth.to_dict() for youth in youths]
-
     def post(self):
         data = request.get_json()
         if 'dob' in data:
@@ -319,7 +322,7 @@ class YouthResource(Resource):
         new_youth = Youth(
             **data
         )
-        send_email(email, "Your Youth Account has been Created", f"Use this as your Logins: {token}")
+        send_email(email, "Your Youth Account has been Created", f"Use this as your Logins: {token}.\nTo set your password. Forget your password and follow the process")
         new_youth.password_hash = token
         db.session.add(new_youth)
         db.session.commit()
@@ -347,14 +350,17 @@ class YouthResource(Resource):
 # School resource for CRUD operations
 class SchoolResource(Resource):
     def get(self, school_id=None):
-        update_completed_payments()
         if school_id:
             school = School.query.get_or_404(school_id)
+            school.set_yearly_payment()
+            update_completed_payments()
             return school.to_dict()
         else:
             schools = School.query.all()
+            for school in schools:
+                school.set_yearly_payment()
+            update_completed_payments()
             return [school.to_dict() for school in schools]
-
     def post(self):
         data = request.get_json()
         totp_secret = generate_totp_secret()
@@ -368,10 +374,24 @@ class SchoolResource(Resource):
         students = [Student(**student) for student in students_data]
         data['students'] = students
         new_school = School(**data)
-        send_email(email, "Your Youth Account has been Created", f"Use this as your Logins: {token}")
+        send_email(email, "Your School Account has been Created", f"Use this as your Logins: {token}.\nTo set your password. Forget your password and follow the process")
         new_school.password_hash = token
         db.session.add(new_school)
         db.session.commit()
+        if new_school.school_type == 'Public':
+            # Set the yearly payment amount (this can also be set in the model)
+            # Create the payment record
+            payment = Payment(
+                amount=1000,
+                status='completed',
+                payment_method='GOV',
+                payment_type='registration',
+                school_id=new_school.id
+            )
+            
+            # Add the payment record to the session and commit
+            db.session.add(payment)
+            db.session.commit()
         return new_school.to_dict(), 201
 
     def patch(self, school_id):
@@ -801,7 +821,14 @@ def youth_send_sms():
         # Determine the recipients based on the category
         if category == 'All':
             recipients = Youth.query.all()
+        elif category in ['Membership', 'Technical', 'Finance', 'Executive']:
+            # Filter by committee
+            recipients = Youth.query.filter_by(commitee=category).all()
+        elif category == 'Commissioner':
+            # Filter by commissioner
+            recipients = Youth.query.filter(Youth.commissioner.isnot(None)).all()
         else:
+            # Filter by category
             recipients = Youth.query.filter_by(category=category).all()
 
         # Extract email addresses
@@ -897,7 +924,14 @@ def send_email_to_category():
     # Determine the recipients based on the category
     if category == 'All':
         recipients = Youth.query.all()
+    elif category in ['Membership', 'Technical', 'Finance', 'Executive']:
+        # Filter by committee
+        recipients = Youth.query.filter_by(commitee=category).all()
+    elif category == 'Commissioner':
+        # Filter by commissioner
+        recipients = Youth.query.filter(Youth.commissioner.isnot(None)).all()
     else:
+        # Filter by category
         recipients = Youth.query.filter_by(category=category).all()
 
     # Extract email addresses

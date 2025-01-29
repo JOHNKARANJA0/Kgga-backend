@@ -151,6 +151,7 @@ class Youth(BaseModel, SerializerMixin):
     phone_number = db.Column(db.String(20), nullable=False)
     token = db.Column(db.String(32), nullable=True)
     registration_fee = db.Column(db.Float, default=500.0)
+    registration_fee_default = db.Column(db.Float, default=500.0)
     yearly_payment_amount = db.Column(db.Float, default=500.0)
     yearly_total_payment = db.Column(db.Float, default=500.0)
     last_payment_date = db.Column(db.DateTime)
@@ -163,7 +164,25 @@ class Youth(BaseModel, SerializerMixin):
     attendances = relationship('Attendance', back_populates='youth', cascade='all, delete-orphan')
     schools = relationship('School', back_populates='guide_leader')
     payments = relationship('Payment', back_populates='youth', cascade='all, delete-orphan')
-
+    def update_youth_amounts(self):
+        if any(school.guide_leader == self.name for school in self.schools):
+            self.registration_fee = 500.0  # If guide_leader, set appropriate fee
+            self.yearly_payment_amount = 500.0
+            self.yearly_total_payment=500.0
+            self.registration_fee_default= 500.0
+        else:
+            # Handle Bravo category if the school is not a guide_leader
+            if self.category == 'Bravo' or self.commitee is not None:
+                self.registration_fee = 1000.0
+                self.yearly_payment_amount = 1000.0
+                self.yearly_total_payment=1000.0
+                self.registration_fee_default= 1000.0
+            else:
+                self.registration_fee = 500.0  # Default category
+                self.yearly_payment_amount = 500.0
+                self.yearly_total_payment=500.0
+                self.registration_fee_default= 500.0
+                
     def update_payment_status(self):
         current_year = datetime.now(nairobi_tz).year
         
@@ -173,10 +192,11 @@ class Youth(BaseModel, SerializerMixin):
                    Payment.status == 'completed',
                    Payment.payment_year == current_year)\
             .scalar() or 0.0
-        self.yearly_payment_amount = max(500 - paid_amount, 0.0)
+        remaining_yearly_payment = self.yearly_payment_amount - paid_amount
+        self.yearly_payment_amount = max(remaining_yearly_payment, 0.0)
         self.last_payment_date = datetime.now(nairobi_tz)
         
-        if paid_amount >= 500.0:
+        if paid_amount >= self.yearly_total_payment:
             self.payment_status = 'paid'
         elif paid_amount > 0:
             self.payment_status = 'partial'
@@ -189,8 +209,10 @@ class Youth(BaseModel, SerializerMixin):
                    Payment.payment_type == 'registration',
                    Payment.status == 'completed')\
             .scalar() or 0.0
-        self.registration_fee = max(500 - reg_paid_amount, 0.0)
-        if reg_paid_amount >= 500.0:
+        remaining_registration_fee = self.registration_fee - reg_paid_amount
+        remaining_registration_fee = max(remaining_registration_fee, 0.0) 
+        self.registration_fee = remaining_registration_fee 
+        if reg_paid_amount >= self.registration_fee_default:
             self.reg_payment_status = 'paid'
         elif reg_paid_amount > 0:
             self.reg_payment_status = 'partial'
@@ -277,7 +299,7 @@ class School(BaseModel, SerializerMixin):
     token = db.Column(db.String(32), nullable=True)
     headteacher_name = db.Column(db.String(100))
     school_type = db.Column(db.String(20))
-    membership_no = db.Column(db.Integer, nullable=False, default=0)
+    membership_no = db.Column(db.Integer, nullable=True, default=0)
     registration_date = db.Column(db.DateTime, default=db.func.now())
     guide_leader_id = db.Column(db.Integer, db.ForeignKey('youths.id'), nullable=True)
     is_active = db.Column(db.Boolean, default=False)
@@ -286,7 +308,8 @@ class School(BaseModel, SerializerMixin):
     last_updated_at = db.Column(db.DateTime, default=datetime.now(nairobi_tz))
     payment_status = db.Column(db.String(20), default='unpaid')
     reg_payment_status = db.Column(db.String(20), default='unpaid')
-    registration_fee = db.Column(db.Float, default=1000.0)
+    registration_fee = db.Column(db.Float, default=500.0)
+    registration_fee_total = db.Column(db.Float, default=500.0)
     yearly_total_payment = db.Column(db.Float, default=0.0)
     guide_leader = relationship('Youth', back_populates='schools', foreign_keys=[guide_leader_id])
     students = relationship('Student', back_populates='school')
@@ -294,14 +317,45 @@ class School(BaseModel, SerializerMixin):
     attendances = relationship('Attendance', back_populates='school', cascade='all, delete-orphan')
     
     serialize_rules = ('-payments.school', '-guide_leader.payments', '-_password_hash', '-attendances')
+    @hybrid_property
+    def calculated_yearly_payment(self):
+        """Dynamically calculate the yearly payment based on the number of students and school type."""
+        
+        # Determine the base amount depending on the school type
+        if self.school_type == 'Public':
+            amount_per_student = 50.0  # Amount for public schools
+        elif self.school_type == 'Private':
+            amount_per_student = 100.0  # Amount for private schools
+        else:
+            amount_per_student = 100.0 
+        
+        # Calculate the total yearly payment
+        return 500 + (len(self.students) * amount_per_student)
+    @hybrid_property
+    def calculated_regist_payment(self):
+        """Dynamically calculate the yearly payment based on the number of students and school type."""
+        
+        # Determine the base amount depending on the school type
+        if self.school_type == 'Public':
+            amount_student = 50.0  # Amount for public schools
+        elif self.school_type == 'Private':
+            amount_student = 100.0  # Amount for private schools
+        else:
+            amount_student = 100.0 
+        
+        # Calculate the total yearly payment
+        return 500 + (len(self.students) * amount_student)
 
-    def calculate_yearly_payment(self):
-        return len(self.students) * 200.0
-
+    def set_yearly_payment(self):
+        """Pre-calculate and set yearly payment fields."""
+        yearly_total = self.calculated_yearly_payment
+        reg_total = self.calculated_regist_payment
+        self.yearly_total_payment = yearly_total
+        self.yearly_payment_amount = yearly_total
+        self.registration_fee = reg_total
+        self.registration_fee_total = reg_total
+        
     def update_payment_status(self):
-        yearly_total = self.calculate_yearly_payment()
-        self.yearly_total_payment = self.calculate_yearly_payment()
-        self.yearly_payment_amount = self.calculate_yearly_payment()
         current_year = datetime.now(nairobi_tz).year
         
         paid_amount = db.session.query(func.sum(Payment.amount))\
@@ -311,10 +365,10 @@ class School(BaseModel, SerializerMixin):
                    Payment.payment_year == current_year)\
             .scalar() or 0.0
 
-        self.yearly_payment_amount = max(yearly_total - paid_amount, 0.0)
+        self.yearly_payment_amount = max(self.yearly_total_payment - paid_amount, 0.0)
         self.last_payment_date = datetime.now(nairobi_tz)
         
-        if paid_amount >= yearly_total:
+        if paid_amount >= self.yearly_total_payment:
             self.payment_status = 'paid'
         elif paid_amount > 0:
             self.payment_status = 'partial'
@@ -327,8 +381,8 @@ class School(BaseModel, SerializerMixin):
                    Payment.payment_type == 'registration',
                    Payment.status == 'completed')\
             .scalar() or 0.0
-        self.registration_fee = max(1000 - reg_paid_amount, 0)
-        if reg_paid_amount >= 1000:
+        self.registration_fee = max(self.registration_fee_total - reg_paid_amount, 0)
+        if reg_paid_amount >= self.registration_fee_total:
             self.reg_payment_status = 'paid'
         elif reg_paid_amount > 0:
             self.reg_payment_status = 'partial'
@@ -524,7 +578,7 @@ def update_completed_payments():
     """Helper function to process all completed payments for both Youth and School."""
     # Retrieve payments with status 'completed' that need processing
     completed_payments = Payment.query.filter_by(status='completed').all()
-    
+
     for payment in completed_payments:
         payment.process_payment()
     
