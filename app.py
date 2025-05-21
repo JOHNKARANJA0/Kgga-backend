@@ -231,8 +231,7 @@ class UserResource(Resource):
             name=data['name'],
             email=data['email'],
             phone_number=data['phone_number'],
-            role=data['role'],
-            password_hash=data['password'],
+            roles=data['roles'],
             token=generate_totp_secret()
         )
         send_email(email, "Your Admin Account has been Created", f"Use this as your Logins: {user_token}.\nTo set your password. Forget your password and follow the process")
