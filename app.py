@@ -141,10 +141,6 @@ def start_scheduler():
 def index():
     return "<h1>KGGA SERVER</h1>"
 
-# Authentication Routes
-from flask import request
-from flask_restful import Resource
-from flask_jwt_extended import create_access_token
 
 class Login(Resource):
     def post(self):
